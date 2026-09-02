@@ -30,6 +30,8 @@ class Wielder
     private @Nullable Integer delay;
     /** Length (in ticks) of the cooldown currently running: used to scale the damage. */
     private int cooldownTotal = 12;
+    /** Timestamp of the last hit dealt with the MAIN hand (-1 = never). */
+    private long lastMainHandAttack = -1;
 
     public Wielder(Player player)
     {
@@ -70,6 +72,21 @@ class Wielder
     public void setDelay(@Nullable Integer delay)
     {
         this.delay = delay;
+    }
+
+    /**
+     * Remembers that the player just hit something with the main hand, so that the off-hand combo
+     * can be forced to wait a little instead of being dealt on the very same frame.
+     */
+    public void markMainHandAttack()
+    {
+        this.lastMainHandAttack = System.currentTimeMillis();
+    }
+
+    /** Milliseconds since the last main hand hit, or -1 when the player never hit anything. */
+    public long millisSinceMainHandAttack()
+    {
+        return lastMainHandAttack < 0 ? -1 : System.currentTimeMillis() - lastMainHandAttack;
     }
 
     public int getCooldownTotal()

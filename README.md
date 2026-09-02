@@ -122,6 +122,17 @@ il colpo di seconda mano subito dopo quello di prima mano verrebbe ignorato. Con
 applicare il danno della seconda mano, che così entra sempre per intero. Mettilo a `false` se
 vuoi la regola vanilla (la seconda mano aggiunge solo la differenza).
 
+Siccome l'invulnerabilità viene azzerata, premere **click sinistro + click destro insieme**
+sarebbe però un doppio danno istantaneo: ci pensa `offhand-delay-after-main-hand` (in tick).
+
+| Valore | Effetto |
+|---|---|
+| `8` (default) | 0,4s: la combo 1-2 è possibile, ma servono due click distinti, non un solo frame |
+| `10` | 0,5s: la finestra di invulnerabilità vanilla (entra solo la differenza di danno) |
+| `0` | nessun ritardo: sconsigliato, è un cheat enorme di DPS |
+
+Mentre il ritardo è in corso non parte nulla: né danno, né animazione, né consumo di mana.
+
 ### MMOItems / MMOCore / Nexo
 
 Il plugin si integra con MMOItems e MMOCore **solo via reflection**: nessuna dipendenza in

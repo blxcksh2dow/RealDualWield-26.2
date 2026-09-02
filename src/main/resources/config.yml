@@ -55,6 +55,14 @@ offhand-knockback: false
 # Set it to false if you prefer the vanilla rule (the off-hand only adds the difference).
 offhand-ignore-no-damage-ticks: true
 
+# How long (in ticks) the off-hand attack has to wait after a hit dealt with the MAIN hand.
+# It is the anti "left click + right click together = instant double damage" guard: the combo is
+# still possible, but it requires two distinct clicks.
+#   8  (default) 0.4s  - a quick 1-2 combo, impossible to do in a single frame
+#   10          0.5s  - the vanilla invulnerability window (only the damage difference lands)
+#   0                  - no delay at all (not recommended: it is a huge DPS cheat)
+offhand-delay-after-main-hand: 8
+
 # ---------------------------------------------------------------------------
 # MMOItems / MMOCore
 # ---------------------------------------------------------------------------

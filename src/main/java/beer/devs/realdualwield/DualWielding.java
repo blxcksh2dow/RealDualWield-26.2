@@ -82,6 +82,7 @@ public class DualWielding implements Listener, CommandExecutor
     private boolean MMO_DURABILITY = false;
     private boolean OFFHAND_KNOCKBACK = false;
     private boolean OFFHAND_IGNORE_NO_DAMAGE_TICKS = true;
+    private int OFFHAND_DELAY_TICKS = 8;
 
     /** Players whose damage is being applied by us right now (so the two-handed filter ignores it). */
     private final java.util.Set<java.util.UUID> applyingOffhandDamage = java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
@@ -226,6 +227,7 @@ public class DualWielding implements Listener, CommandExecutor
         MMO_DURABILITY = config.getBoolean("mmoitems.apply-durability", false);
         OFFHAND_KNOCKBACK = config.getBoolean("offhand-knockback", false);
         OFFHAND_IGNORE_NO_DAMAGE_TICKS = config.getBoolean("offhand-ignore-no-damage-ticks", true);
+        OFFHAND_DELAY_TICKS = config.getInt("offhand-delay-after-main-hand", 8);
 
         Debug.setEnabled(config.getBoolean("debug", false));
 
@@ -381,6 +383,16 @@ public class DualWielding implements Listener, CommandExecutor
                     + " attack-speed=" + MMOHook.stat(weapon, "ATTACK_SPEED") + " (cooldown " + cooldownTicks(weapon) + " ticks)"
                     + " mana-cost=" + MMOHook.manaCost(weapon) + " stamina-cost=" + MMOHook.staminaCost(weapon)
                     + " two-handed=" + MMOHook.isTwoHanded(weapon) + " weapon=" + MMOHook.isWeapon(weapon));
+        }
+
+        // Left click + right click at the same time is not an instant double hit: the off-hand
+        // has to wait a little after the main hand one (but not the whole invulnerability window,
+        // otherwise the off-hand weapon would be useless).
+        if (isOffHandDelayed(wielder))
+        {
+            Debug.log("attack skipped: the off-hand must wait " + OFFHAND_DELAY_TICKS + " ticks after the main hand hit ("
+                    + wielder.millisSinceMainHandAttack() + " ms passed)");
+            return;
         }
 
         // Mana / stamina cost of the off-hand weapon, exactly like MMOItems does.
@@ -602,17 +614,22 @@ public class DualWielding implements Listener, CommandExecutor
     @EventHandler
     public void onEntityDamageByEntity(EntityDamageByEntityEvent e)
     {
-        if (!MMO_ENABLED || !MMO_TWO_HANDED || !MMO_CANCEL_MAIN_HAND)
-            return;
-
         if (e.getCause() != EntityDamageEvent.DamageCause.ENTITY_ATTACK)
             return;
 
         if (!(e.getDamager() instanceof Player player))
             return;
 
-        // Never block the off-hand hit we are applying ourselves.
+        // Never interfere with the off-hand hit we are applying ourselves.
         if (applyingOffhandDamage.contains(player.getUniqueId()))
+            return;
+
+        // Every main hand hit is remembered, whoever dealt it, so that the off-hand combo can be
+        // delayed a little instead of landing on the very same frame.
+        if (!e.isCancelled())
+            getPlayerData(player).markMainHandAttack();
+
+        if (!MMO_ENABLED || !MMO_TWO_HANDED || !MMO_CANCEL_MAIN_HAND)
             return;
 
         if (MMOHook.isEncumbered(player))
@@ -620,6 +637,22 @@ public class DualWielding implements Listener, CommandExecutor
             e.setCancelled(true);
             Debug.log("main hand attack cancelled: " + player.getName() + " is holding a two handed weapon and something in the other hand");
         }
+    }
+
+    /**
+     * True when the player hit something with the main hand too recently: the off-hand attack is
+     * delayed so that pressing left and right click together is not an instant double hit.
+     *
+     * <p>{@code offhand-delay-after-main-hand} is expressed in ticks (8 = 0.4s, 10 = the vanilla
+     * invulnerability window, 0 = no delay at all).
+     */
+    private boolean isOffHandDelayed(Wielder wielder)
+    {
+        if (OFFHAND_DELAY_TICKS <= 0)
+            return false;
+
+        long since = wielder.millisSinceMainHandAttack();
+        return since >= 0 && since < OFFHAND_DELAY_TICKS * 50L;
     }
 
     @EventHandler
@@ -648,6 +681,9 @@ public class DualWielding implements Listener, CommandExecutor
         // Two handed: no off-hand swing at all while the hands are "too charged", and never for a
         // two handed weapon sitting in the off hand.
         if (isOffHandBlocked(player, player.getInventory().getItemInOffHand()))
+            return;
+
+        if (isOffHandDelayed(wielder))
             return;
 
         if (config.getBoolean("deny-longpress-rightclick") && e.getAction().equals(Action.RIGHT_CLICK_AIR) && holding)
