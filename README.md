@@ -113,6 +113,15 @@ compilato il plugin, il plugin parte comunque e la barra di cooldown continua a 
 stesso vale per l'animazione: se il pacchetto non arriva a nessuno, si passa da solo a
 `swingOffHand()`.
 
+### Colpire subito dopo la mano principale
+
+In vanilla un mob colpito è **invulnerabile per 10 tick (0,5s)** e in quella finestra vengono
+scartati tutti i danni non *superiori* al precedente. Il dual wielding sarebbe quindi inutile:
+il colpo di seconda mano subito dopo quello di prima mano verrebbe ignorato. Con
+`offhand-ignore-no-damage-ticks: true` (default) l'invulnerabilità viene azzerata prima di
+applicare il danno della seconda mano, che così entra sempre per intero. Mettilo a `false` se
+vuoi la regola vanilla (la seconda mano aggiunge solo la differenza).
+
 ### MMOItems / MMOCore / Nexo
 
 Il plugin si integra con MMOItems e MMOCore **solo via reflection**: nessuna dipendenza in

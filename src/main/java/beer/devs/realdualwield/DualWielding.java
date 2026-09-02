@@ -81,6 +81,7 @@ public class DualWielding implements Listener, CommandExecutor
     private boolean MMO_ALL_WEAPONS = true;
     private boolean MMO_DURABILITY = false;
     private boolean OFFHAND_KNOCKBACK = false;
+    private boolean OFFHAND_IGNORE_NO_DAMAGE_TICKS = true;
 
     /** Players whose damage is being applied by us right now (so the two-handed filter ignores it). */
     private final java.util.Set<java.util.UUID> applyingOffhandDamage = java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
@@ -224,6 +225,7 @@ public class DualWielding implements Listener, CommandExecutor
         MMO_ALL_WEAPONS = config.getBoolean("mmoitems.all-mmoitems-weapons", true);
         MMO_DURABILITY = config.getBoolean("mmoitems.apply-durability", false);
         OFFHAND_KNOCKBACK = config.getBoolean("offhand-knockback", false);
+        OFFHAND_IGNORE_NO_DAMAGE_TICKS = config.getBoolean("offhand-ignore-no-damage-ticks", true);
 
         Debug.setEnabled(config.getBoolean("debug", false));
 
@@ -498,9 +500,24 @@ public class DualWielding implements Listener, CommandExecutor
 
                 double damage = apiDamageEvent.getDamage();
                 double before = damaged.getHealth();
+                int noDamageTicks = damaged.getNoDamageTicks();
+
                 try
                 {
                     applyingOffhandDamage.add(player.getUniqueId());
+
+                    /*
+                     * A mob hit by the main hand is invulnerable for 10 ticks (0.5s): during that
+                     * window vanilla drops every damage that is not HIGHER than the previous one.
+                     * Without this the off-hand hit that follows a main hand hit silently does
+                     * nothing, which is exactly the opposite of what dual wielding is about.
+                     */
+                    if (OFFHAND_IGNORE_NO_DAMAGE_TICKS && noDamageTicks > 0)
+                    {
+                        Debug.log("clearing " + noDamageTicks + " no-damage ticks on " + damaged.getType());
+                        damaged.setNoDamageTicks(0);
+                    }
+
                     damaged.damage(damage, player);
                 }
                 catch (Throwable t)

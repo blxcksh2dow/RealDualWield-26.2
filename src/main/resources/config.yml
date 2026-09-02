@@ -49,6 +49,12 @@ nexo-check: block
 # knockback belongs to the combat system of those plugins.
 offhand-knockback: false
 
+# A mob hit by the main hand is invulnerable for 10 ticks (0.5s) and vanilla drops every damage
+# that is not higher than the previous one during that window: with this option the off-hand hit
+# right after a main hand hit lands anyway (the invulnerability is cleared before dealing it).
+# Set it to false if you prefer the vanilla rule (the off-hand only adds the difference).
+offhand-ignore-no-damage-ticks: true
+
 # ---------------------------------------------------------------------------
 # MMOItems / MMOCore
 # ---------------------------------------------------------------------------
