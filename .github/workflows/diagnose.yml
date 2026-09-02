@@ -1,0 +1,75 @@
+name: Diagnose 26.2 API
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve maven artifacts
+        run: |
+          echo "===== paper-api metadata ====="
+          curl -sS "https://repo.papermc.io/repository/maven-public/io/papermc/paper/paper-api/maven-metadata.xml" | tail -30
+          echo "===== protocollib metadata (dmulloy2) ====="
+          curl -sS "https://repo.dmulloy2.net/repository/public/com/comphenix/protocol/ProtocolLib/maven-metadata.xml" | tail -30
+          echo "===== itemsadder repo ====="
+          curl -sS -o /dev/null -w "maven.devs.beer -> %{http_code}\n" "https://maven.devs.beer/" || echo "maven.devs.beer unreachable"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Download Paper 26.2 server jar
+        run: |
+          set -e
+          echo "===== paper versions ====="
+          curl -sS "https://api.papermc.io/v2/projects/paper" | head -c 1500
+          echo
+          BUILD=$(curl -sS "https://api.papermc.io/v2/projects/paper/versions/26.2/builds" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['builds'][-1]['build'])")
+          echo "latest 26.2 build: $BUILD"
+          FILE=$(curl -sS "https://api.papermc.io/v2/projects/paper/versions/26.2/builds/$BUILD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['downloads']['application']['name'])")
+          echo "file: $FILE"
+          curl -sS -o paper.jar "https://api.papermc.io/v2/projects/paper/versions/26.2/builds/$BUILD/downloads/$FILE"
+          ls -la paper.jar
+
+      - name: javap NMS animate packet
+        run: |
+          echo "===== ClientboundAnimatePacket ====="
+          javap -p -cp paper.jar net.minecraft.network.protocol.game.ClientboundAnimatePacket
+          echo "===== ServerGamePacketListenerImpl send methods ====="
+          javap -p -cp paper.jar net.minecraft.server.network.ServerGamePacketListenerImpl | grep -i "send\|connection" | head -20
+          echo "===== ServerPlayer connection field ====="
+          javap -p -cp paper.jar net.minecraft.server.level.ServerPlayer | grep -i "connection" | head -10
+
+      - name: javap Bukkit API surface
+        run: |
+          for c in org.bukkit.entity.LivingEntity org.bukkit.entity.Player org.bukkit.inventory.ItemStack org.bukkit.inventory.meta.ItemMeta org.bukkit.Material org.bukkit.enchantments.Enchantment org.bukkit.attribute.Attribute org.bukkit.potion.PotionEffectType org.bukkit.block.Block org.bukkit.event.entity.EntityDamageByEntityEvent org.bukkit.event.entity.EntityDamageEvent\$DamageModifier org.bukkit.Bukkit; do
+            echo "===== $c ====="
+            javap -cp paper.jar "$c" 2>&1 | head -80
+          done
+
+      - name: Bukkit API targeted greps
+        run: |
+          echo "== LivingEntity swing =="; javap -cp paper.jar org.bukkit.entity.LivingEntity | grep -i swing || true
+          echo "== Player swing/title =="; javap -cp paper.jar org.bukkit.entity.Player | grep -i "swing\|title" || true
+          echo "== ItemStack durability/damage =="; javap -cp paper.jar org.bukkit.inventory.ItemStack | grep -i "durab\|damage" || true
+          echo "== ItemMeta damage/unbreakable/attrs =="; javap -cp paper.jar org.bukkit.inventory.meta.ItemMeta | grep -i "durab\|damage\|unbreak\|attributemod" || true
+          echo "== Damageable =="; javap -cp paper.jar org.bukkit.inventory.meta.Damageable 2>&1 | head -20
+          echo "== Material maxDurability =="; javap -cp paper.jar org.bukkit.Material | grep -i "maxdurab" || true
+          echo "== Enchantment constants =="; javap -cp paper.jar org.bukkit.enchantments.Enchantment | grep -iE "sharpness|knockback|fire_aspect" || true
+          echo "== Attribute constants =="; javap -cp paper.jar org.bukkit.attribute.Attribute | grep -iE "attack_damage|armor" | head -10
+          echo "== PotionEffectType constants =="; javap -cp paper.jar org.bukkit.potion.PotionEffectType | grep -iE "blindness|strength|resistance" || true
+          echo "== Block getDrops =="; javap -cp paper.jar org.bukkit.block.Block | grep -i getdrops || true
+          echo "== EntityDamageByEntityEvent ctors =="; javap -cp paper.jar org.bukkit.event.entity.EntityDamageByEntityEvent | head -20
+          echo "== Sound constants =="; javap -cp paper.jar org.bukkit.Sound | grep -iE "ENTITY_PLAYER_ATTACK_SWEEP|ENTITY_PLAYER_ATTACK_CRIT|BLOCK_GRASS_BREAK" || true
+          echo "== Particle constants =="; javap -cp paper.jar org.bukkit.Particle | grep -iE "SWEEP_ATTACK|DAMAGE_INDICATOR|^ *CRIT|BLOCK;" | head -10
+          echo "== bungee chat present? =="; unzip -l paper.jar | grep "md_5/bungee/api/ChatColor" | head -3 || echo "NO bungee ChatColor"
+
+      - name: Deprecation check on used methods
+        run: |
+          for c in org.bukkit.inventory.ItemStack org.bukkit.Material org.bukkit.entity.Player org.bukkit.block.Block org.bukkit.enchantments.Enchantment org.bukkit.potion.PotionEffectType; do
+            echo "===== deprecated in $c ====="
+            javap -v -cp paper.jar "$c" 2>/dev/null | grep -B30 "Deprecated" | grep -E "^  [a-zA-Z].*\(|Deprecated" | head -40 || true
+          done
