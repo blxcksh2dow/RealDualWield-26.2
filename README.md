@@ -113,6 +113,25 @@ compilato il plugin, il plugin parte comunque e la barra di cooldown continua a 
 stesso vale per l'animazione: se il pacchetto non arriva a nessuno, si passa da solo a
 `swingOffHand()`.
 
+### Animazione proporzionata alla velocità dell'arma
+
+Dal 26.1 la durata (e la forma: **whack** / **stab**) dell'animazione di swing è il data component
+`minecraft:swing_animation` **dell'oggetto che si sta muovendo**: se l'item non ce l'ha, il client
+usa un fisso di **6 tick**. Le armi MMOItems sono costruite su un materiale vanilla e questo
+componente non ce l'hanno, quindi swingano tutte allo stesso modo.
+
+Con `offhand-swing-animation: auto` il plugin lo scrive sulle armi che ancora non lo definiscono:
+
+```
+durata = 10 / attack-speed   →   6 tick per una spada da 1,6 atk/s (il default vanilla)
+                                 fino a 20 tick (1s) per un grande spadone lento
+tipo   = STAB se il materiale base è una spada, WHACK altrimenti
+```
+
+Viene scritto **solo sugli item che non ce l'hanno**, quindi una scelta esplicita (di MMOItems o di
+un altro plugin) non viene mai sovrascritta, e tocca solo l'animazione: nessuna texture, stat o NBT
+viene modificata. `offhand-swing-animation: 12` forza 12 tick, `none` non tocca mai l'item.
+
 ### Colpire subito dopo la mano principale
 
 In vanilla un mob colpito è **invulnerabile per 10 tick (0,5s)** e in quella finestra vengono

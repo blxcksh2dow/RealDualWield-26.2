@@ -45,6 +45,19 @@ debug: false
 #   false - never check Nexo
 nexo-check: block
 
+# Off-hand swing animation. Since Minecraft 26.1 the length (and the shape, whack/stab) of the
+# swing animation is the "minecraft:swing_animation" data component of the item being swung, and
+# the client falls back on a flat 6 ticks when the item does not carry it: MMOItems weapons, built
+# on a vanilla material, never carry it and therefore all swing in the same way.
+#
+#   auto  - duration = 10 / attack-speed ticks, i.e. half of the recharge time of the weapon:
+#           6 ticks for a 1.6 atk/s sword (the vanilla default), up to 20 (1s) for a greatsword.
+#           Written only on the items that do not define the component yet: nothing else of the
+#           item is touched, textures included.
+#   <n>   - always use n ticks (es. offhand-swing-animation: 12)
+#   none  - never touch the item (the animation is always the vanilla default of 6 ticks)
+offhand-swing-animation: auto
+
 # Knockback applied by the off-hand attack. Keep it off: on MMOItems/MMOCore servers the
 # knockback belongs to the combat system of those plugins.
 offhand-knockback: false

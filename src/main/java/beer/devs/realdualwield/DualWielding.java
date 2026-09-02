@@ -5,6 +5,8 @@ import beer.devs.realdualwield.api.PlayerDamageEntityWithOffhandEvent;
 import beer.devs.realdualwield.api.PlayerOffhandAnimationEvent;
 import beer.devs.realdualwield.api.PlayerOffhandDelayEvent;
 import beer.devs.realdualwield.api.PlayerOffhandReduceDurabilityEvent;
+import io.papermc.paper.datacomponent.DataComponentTypes;
+import io.papermc.paper.datacomponent.item.SwingAnimation;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.title.Title;
@@ -63,6 +65,9 @@ public class DualWielding implements Listener, CommandExecutor
 
     private FileConfiguration config;
     private String NEXO_CHECK = "block";
+
+    /** Off-hand swing animation: "none", "auto" or a number of ticks. */
+    private static String SWING_ANIMATION = "auto";
 
     // MMOItems / MMOCore
     private boolean MMO_ENABLED = true;
@@ -228,6 +233,7 @@ public class DualWielding implements Listener, CommandExecutor
         OFFHAND_KNOCKBACK = config.getBoolean("offhand-knockback", false);
         OFFHAND_IGNORE_NO_DAMAGE_TICKS = config.getBoolean("offhand-ignore-no-damage-ticks", true);
         OFFHAND_DELAY_TICKS = config.getInt("offhand-delay-after-main-hand", 8);
+        SWING_ANIMATION = String.valueOf(config.get("offhand-swing-animation", "auto"));
 
         Debug.setEnabled(config.getBoolean("debug", false));
 
@@ -257,6 +263,8 @@ public class DualWielding implements Listener, CommandExecutor
         lines.add("version " + (Main.inst == null ? "?" : Main.inst.getPluginMeta().getVersion())
                 + " on Minecraft " + Bukkit.getServer().getMinecraftVersion());
         lines.add("off-hand animation: " + OffhandAnimation.describe());
+        lines.add("off-hand swing duration (item component): " + SWING_ANIMATION
+                + (SWING_ANIMATION != null && SWING_ANIMATION.equalsIgnoreCase("auto") ? " (10 / attack speed ticks)" : ""));
         lines.add("ProtocolLib: " + (OffhandAnimation.isProtocolLibEnabled() ? "found" : "not found"));
         lines.add("Nexo: " + (Main.HAS_NEXO ? "hooked" : "not found"));
         lines.addAll(MMOHook.describe());
@@ -450,6 +458,7 @@ public class DualWielding implements Listener, CommandExecutor
             // The swing is played on EVERY hit: in vanilla a critical hit swings the arm too, and
             // in the 1.2x code it was only played on the non critical branch, so a critical
             // off-hand hit dealt its damage without any animation at all.
+            applySwingAnimation(player, weapon);
             wielder.offhandAnimation();
 
             if (critical)
@@ -612,6 +621,72 @@ public class DualWielding implements Listener, CommandExecutor
         return DEFAULT_COOLDOWN;
     }
 
+    /**
+     * Makes the off-hand swing animation as long as the weapon deserves.
+     *
+     * <p>Since Minecraft 26.1 the length (and the shape: whack/stab) of the swing animation is the
+     * {@code minecraft:swing_animation} data component of the item being swung, and the client
+     * falls back on a flat 6 ticks when the item does not carry it. MMOItems weapons are built on
+     * a vanilla material and never carry it, so every one of them swings exactly the same way.
+     *
+     * <p>The component is written only on the items that do not define it yet, so an explicit
+     * choice (by MMOItems, by another plugin or by the vanilla defaults) is never overwritten, and
+     * it only affects the animation: no texture, no stat, no NBT is touched.
+     */
+    private void applySwingAnimation(Player player, ItemStack weapon)
+    {
+        if (SWING_ANIMATION == null || SWING_ANIMATION.equalsIgnoreCase("none"))
+            return;
+
+        if (weapon == null || weapon.getType() == Material.AIR || weapon.hasData(DataComponentTypes.SWING_ANIMATION))
+            return;
+
+        int duration = swingDuration(weapon);
+        if (duration <= 0)
+            return;
+
+        try
+        {
+            SwingAnimation.Animation type = weapon.getType().name().endsWith("SWORD")
+                    ? SwingAnimation.Animation.STAB
+                    : SwingAnimation.Animation.WHACK;
+
+            weapon.setData(DataComponentTypes.SWING_ANIMATION, SwingAnimation.swingAnimation().type(type).duration(duration).build());
+            player.getInventory().setItemInOffHand(weapon);
+            Debug.log("swing animation set on " + weapon.getType() + ": " + type + ", " + duration + " ticks");
+        }
+        catch (Throwable t)
+        {
+            Debug.log("could not set the swing animation on " + weapon.getType() + ": " + t);
+        }
+    }
+
+    /**
+     * Duration in ticks of the off-hand swing: {@code 10 / attack speed}, i.e. half of the time the
+     * weapon needs to recharge (6 ticks for a 1.6 atk/s sword, which is the vanilla default, up to
+     * 20 ticks = 1s for a very slow greatsword).
+     */
+    private int swingDuration(ItemStack weapon)
+    {
+        if (!SWING_ANIMATION.equalsIgnoreCase("auto"))
+        {
+            try
+            {
+                return Integer.parseInt(SWING_ANIMATION.trim());
+            }
+            catch (Throwable t)
+            {
+                return 0;
+            }
+        }
+
+        double speed = MMOHook.attackSpeed(weapon);
+        if (speed <= 0)
+            return 0;
+
+        return Math.max(2, Math.min(20, (int) Math.round(10.0 / speed)));
+    }
+
     /** Sends a message configured by the admin (supports &amp; colour codes). */
     private void notify(Player player, String message)
     {
@@ -735,6 +810,7 @@ public class DualWielding implements Listener, CommandExecutor
 
             if (isEnabled(itemOffHand) && !wielder.isUsingLeftWeapon())
             {
+                applySwingAnimation(player, itemOffHand);
                 wielder.offhandAnimation();
 
                 if (player.getGameMode() == GameMode.ADVENTURE)
