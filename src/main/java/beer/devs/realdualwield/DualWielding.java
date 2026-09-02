@@ -278,6 +278,7 @@ public class DualWielding implements Listener, CommandExecutor
         lines.add("ProtocolLib: " + (OffhandAnimation.isProtocolLibEnabled() ? "found" : "not found"));
         lines.add("Nexo: " + (Main.HAS_NEXO ? "hooked" : "not found"));
         lines.addAll(MMOHook.describe());
+        lines.addAll(MythicLibHook.describe());
         return lines;
     }
 
@@ -545,6 +546,9 @@ public class DualWielding implements Listener, CommandExecutor
                 {
                     applyingOffhandDamage.add(player.getUniqueId());
 
+                    // MMOItems must not charge the main hand weapon for this hit (see MythicLibHook).
+                    MythicLibHook.beginOffhandDamage(damaged);
+
                     /*
                      * A mob hit by the main hand is invulnerable for 10 ticks (0.5s): during that
                      * window vanilla drops every damage that is not HIGHER than the previous one.
@@ -576,10 +580,14 @@ public class DualWielding implements Listener, CommandExecutor
                 }
                 finally
                 {
+                    MythicLibHook.endOffhandDamage(damaged);
                     applyingOffhandDamage.remove(player.getUniqueId());
                 }
                 Debug.log("damage " + damage + " on " + damaged.getType() + ": health " + before + " -> " + damaged.getHealth()
                         + (damaged.getHealth() >= before ? " (the attack did nothing)" : ""));
+
+                if (MMO_ENABLED && Debug.isEnabled() && MMOHook.hasMMOCore())
+                    Debug.log("after the hit: " + MMOHook.getMana(player) + " mana, " + MMOHook.getStamina(player) + " stamina");
             }
         }
 

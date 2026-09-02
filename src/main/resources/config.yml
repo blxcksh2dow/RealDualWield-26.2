@@ -133,6 +133,11 @@ mmoitems:
 
   # Applies the Mana Cost / Stamina Cost of the off-hand weapon, exactly like MMOItems does.
   # Needs MMOCore: with MMOItems alone the cost is ignored.
+  # Since 1.17.0 the main hand weapon never pays for an off-hand hit: MythicLib builds every
+  # damage event as a MAIN_HAND attack, so MMOItems used to take its mana on top of this one
+  # (double cost with two identical weapons) and could even cancel the off-hand damage when the
+  # main hand item was not a melee weapon or the player did not meet its requirements.
+  # The off-hand hit is now hidden from MMOItems, so this is the only cost that is taken.
   apply-weapon-costs: true
 
   # Tells the player when he does not have enough mana/stamina for the off-hand weapon.

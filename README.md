@@ -213,13 +213,31 @@ compilazione, niente si rompe se mancano o se cambiano API. Tutto è riassunto n
 | **Texture** | Il plugin **non modifica mai l'item**: non tocca NBT, né `CustomModelData`, né i componenti. In più, di default **non applica la durabilità vanilla** agli item MMOItems (`apply-durability: false`), così gli item con *texture by durability* o con la durabilità custom di MMOItems restano intatti. |
 | **Nexo** | Vedi `nexo-check`. |
 
-#### Nota su MythicLib
+#### Nota su MythicLib (il mana della mano principale non viene toccato)
 
-MythicLib (la libreria condivisa da MMOItems/MMOCore) trasforma ogni attacco in un
-`PlayerAttackEvent`. Noi applichiamo il danno con `LivingEntity#damage(...)`, quindi il suo
-pipeline parte regolarmente **ma vede l'arma della mano principale**: se anche quella ha un
-`MANA_COST`, MythicLib/MMOItems potrebbe scalarlo una seconda volta. Se noti consumi doppi
-metti `mmoitems.apply-weapon-costs: false` e lascia fare tutto a MMOItems.
+MythicLib (la libreria condivisa da MMOItems/MMOCore) trasforma ogni danno in un
+`PlayerAttackEvent`, e in `DamageManager#findAttack` lo costruisce **sempre** con
+`EquipmentSlot.MAIN_HAND` (suo commento: *"left-hand attacks are handled by specific listeners"*).
+MMOItems allora fa:
+
+```java
+// net.Indyuce.mmoitems.listener.ItemUse, EventPriority.LOW, ignoreCancelled = true
+ItemStack used = player.getInventory().getItem(((MeleeAttackMetadata) event.getAttack()).getHand().toBukkit());
+new Weapon(playerData, item).handleTargetedAttack(...);   // prende mana e stamina
+```
+
+Cioè: **ogni colpo di seconda mano veniva pagato due volte**, una volta dal plugin (l'arma giusta,
+quella della seconda mano) e una volta da MMOItems (quella della prima mano). Con la stessa spada
+in entrambe le mani fa esattamente il doppio del mana. C'era di peggio: se l'arma della prima mano
+non è un'arma da mischia, o non si hanno i requisiti, o non si ha il mana per **lei**, MMOItems
+chiama `setCancelled(true)` e siccome `AttackEvent#setCancelled` scrive direttamente
+sull'`EntityDamageEvent` sottostante, la prima mano poteva **annullare il danno della seconda**.
+
+Il plugin ora nasconde il colpo di seconda mano a MMOItems, e solo a MMOItems: annulla il
+`PlayerAttackEvent` a `LOWEST` (prima del suo listener, che è `LOW` con `ignoreCancelled = true`) e
+lo rimette come era a `NORMAL`, così MythicLib (che lo lancia dal suo listener `HIGHEST` sul danno)
+ritrova l'evento intatto: tipi di danno, modificatori e `PlayerKillEntityEvent` continuano a
+funzionare come prima. L'unica arma che paga il colpo è quella che ha colpito: la seconda mano.
 
 ### `/rdwdebug` (o `/rdwreload debug`)
 

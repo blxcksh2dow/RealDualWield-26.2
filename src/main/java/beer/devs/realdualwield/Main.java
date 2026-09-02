@@ -22,6 +22,11 @@ public class Main extends JavaPlugin
             getLogger().info("Nexo detected: Nexo blocks held in the main hand will not trigger the off-hand swing.");
 
         MMOHook.init(getServer().getPluginManager());
+
+        // MythicLib makes every damage event look like a main hand attack, and MMOItems then takes
+        // the mana of the main hand weapon on top of the off hand one. This hides the off-hand hit.
+        MythicLibHook.init(this);
+
         if (MMOHook.hasMMOItems())
             getLogger().info("MMOItems detected: two handed weapons are blocked, weapon mana/stamina costs and attack speed are applied to the off hand.");
         if (MMOHook.hasMMOCore())
