@@ -447,6 +447,11 @@ public class DualWielding implements Listener, CommandExecutor
 
         if (Events.call(new PlayerOffhandAnimationEvent(e)))
         {
+            // The swing is played on EVERY hit: in vanilla a critical hit swings the arm too, and
+            // in the 1.2x code it was only played on the non critical branch, so a critical
+            // off-hand hit dealt its damage without any animation at all.
+            wielder.offhandAnimation();
+
             if (critical)
             {
                 player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_ATTACK_CRIT, 10.0F, 1.0F);
@@ -455,8 +460,6 @@ public class DualWielding implements Listener, CommandExecutor
             else
             {
                 player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_ATTACK_SWEEP, 10.0F, 1.0F);
-
-                wielder.offhandAnimation();
 
                 if (Utils.isASword(weapon))
                 {
