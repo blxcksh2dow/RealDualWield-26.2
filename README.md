@@ -131,7 +131,14 @@ sarebbe però un doppio danno istantaneo: ci pensa `offhand-delay-after-main-han
 | `10` | 0,5s: la finestra di invulnerabilità vanilla (entra solo la differenza di danno) |
 | `0` | nessun ritardo: sconsigliato, è un cheat enorme di DPS |
 
-Mentre il ritardo è in corso non parte nulla: né danno, né animazione, né consumo di mana.
+Il ritardo vale **in entrambe le direzioni**: la seconda mano aspetta dopo un colpo di prima mano
+e la prima mano aspetta dopo un colpo di seconda mano, altrimenti azzerare l'invulnerabilità
+trasformerebbe *seconda → prima* in un doppio danno gratuito. Mentre il ritardo è in corso non
+parte nulla: né danno, né animazione, né consumo di mana.
+
+Di conseguenza il colpo di seconda mano **non lascia il bersaglio invulnerabile**: così la combo
+`principale → seconda → principale` entra tutta e tre le volte (prima l'ultimo colpo veniva
+ingoiate dai 10 tick di invulnerabilità vanilla generati dal nostro stesso colpo).
 
 ### MMOItems / MMOCore / Nexo
 

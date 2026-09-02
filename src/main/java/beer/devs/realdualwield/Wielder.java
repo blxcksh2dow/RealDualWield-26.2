@@ -32,6 +32,8 @@ class Wielder
     private int cooldownTotal = 12;
     /** Timestamp of the last hit dealt with the MAIN hand (-1 = never). */
     private long lastMainHandAttack = -1;
+    /** Timestamp of the last hit dealt with the OFF hand (-1 = never). */
+    private long lastOffHandAttack = -1;
 
     public Wielder(Player player)
     {
@@ -83,10 +85,21 @@ class Wielder
         this.lastMainHandAttack = System.currentTimeMillis();
     }
 
+    public void markOffHandAttack()
+    {
+        this.lastOffHandAttack = System.currentTimeMillis();
+    }
+
     /** Milliseconds since the last main hand hit, or -1 when the player never hit anything. */
     public long millisSinceMainHandAttack()
     {
         return lastMainHandAttack < 0 ? -1 : System.currentTimeMillis() - lastMainHandAttack;
+    }
+
+    /** Milliseconds since the last off hand hit, or -1 when the player never hit anything. */
+    public long millisSinceOffHandAttack()
+    {
+        return lastOffHandAttack < 0 ? -1 : System.currentTimeMillis() - lastOffHandAttack;
     }
 
     public int getCooldownTotal()

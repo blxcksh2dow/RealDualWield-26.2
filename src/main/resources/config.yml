@@ -55,9 +55,10 @@ offhand-knockback: false
 # Set it to false if you prefer the vanilla rule (the off-hand only adds the difference).
 offhand-ignore-no-damage-ticks: true
 
-# How long (in ticks) the off-hand attack has to wait after a hit dealt with the MAIN hand.
-# It is the anti "left click + right click together = instant double damage" guard: the combo is
-# still possible, but it requires two distinct clicks.
+# Minimum time (in ticks) between two hits, WHICHEVER hand deals them: the off hand waits after a
+# main hand hit and the main hand waits after an off-hand hit. It is the anti "left click + right
+# click together = instant double damage" guard: the combo main -> off -> main is still possible,
+# but every hit needs its own click.
 #   8  (default) 0.4s  - a quick 1-2 combo, impossible to do in a single frame
 #   10          0.5s  - the vanilla invulnerability window (only the damage difference lands)
 #   0                  - no delay at all (not recommended: it is a huge DPS cheat)

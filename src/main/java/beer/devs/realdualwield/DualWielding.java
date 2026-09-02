@@ -531,6 +531,17 @@ public class DualWielding implements Listener, CommandExecutor
                     }
 
                     damaged.damage(damage, player);
+
+                    /*
+                     * The off-hand hit must not leave the target invulnerable, otherwise the
+                     * main hand hit that closes the combo (main -> off -> main) is swallowed by
+                     * vanilla for half a second. Spamming is impossible anyway: no hand can hit
+                     * again before offhand-delay-after-main-hand ticks have passed.
+                     */
+                    if (OFFHAND_IGNORE_NO_DAMAGE_TICKS)
+                        damaged.setNoDamageTicks(0);
+
+                    wielder.markOffHandAttack();
                 }
                 catch (Throwable t)
                 {
@@ -624,10 +635,22 @@ public class DualWielding implements Listener, CommandExecutor
         if (applyingOffhandDamage.contains(player.getUniqueId()))
             return;
 
+        Wielder wielder = getPlayerData(player);
+
+        // The delay works in both directions: the main hand also has to wait after an off-hand hit,
+        // otherwise clearing the invulnerability would turn off -> main into a free double hit.
+        if (isDelayActive(wielder.millisSinceOffHandAttack()))
+        {
+            e.setCancelled(true);
+            Debug.log("main hand attack cancelled: " + wielder.millisSinceOffHandAttack()
+                    + " ms after the off-hand hit, " + OFFHAND_DELAY_TICKS + " ticks are required");
+            return;
+        }
+
         // Every main hand hit is remembered, whoever dealt it, so that the off-hand combo can be
         // delayed a little instead of landing on the very same frame.
         if (!e.isCancelled())
-            getPlayerData(player).markMainHandAttack();
+            wielder.markMainHandAttack();
 
         if (!MMO_ENABLED || !MMO_TWO_HANDED || !MMO_CANCEL_MAIN_HAND)
             return;
@@ -648,11 +671,12 @@ public class DualWielding implements Listener, CommandExecutor
      */
     private boolean isOffHandDelayed(Wielder wielder)
     {
-        if (OFFHAND_DELAY_TICKS <= 0)
-            return false;
+        return isDelayActive(wielder.millisSinceMainHandAttack());
+    }
 
-        long since = wielder.millisSinceMainHandAttack();
-        return since >= 0 && since < OFFHAND_DELAY_TICKS * 50L;
+    private boolean isDelayActive(long millisSinceLastHit)
+    {
+        return OFFHAND_DELAY_TICKS > 0 && millisSinceLastHit >= 0 && millisSinceLastHit < OFFHAND_DELAY_TICKS * 50L;
     }
 
     @EventHandler
