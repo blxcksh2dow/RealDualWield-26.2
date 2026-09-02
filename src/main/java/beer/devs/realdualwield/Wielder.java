@@ -28,6 +28,8 @@ class Wielder
     private long lastEntityInteractGap;
     private boolean usingLeftWeapon;
     private @Nullable Integer delay;
+    /** Length (in ticks) of the cooldown currently running: used to scale the damage. */
+    private int cooldownTotal = 12;
 
     public Wielder(Player player)
     {
@@ -68,6 +70,16 @@ class Wielder
     public void setDelay(@Nullable Integer delay)
     {
         this.delay = delay;
+    }
+
+    public int getCooldownTotal()
+    {
+        return cooldownTotal;
+    }
+
+    public void setCooldownTotal(int cooldownTotal)
+    {
+        this.cooldownTotal = cooldownTotal <= 0 ? 12 : cooldownTotal;
     }
 
     public Player getPlayer()

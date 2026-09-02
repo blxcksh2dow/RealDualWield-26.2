@@ -15,10 +15,17 @@ public class Main extends JavaPlugin
         inst = this;
 
         saveDefaultConfig();
+        Debug.setEnabled(getConfig().getBoolean("debug", false));
 
         HAS_NEXO = NexoHook.init(getServer().getPluginManager());
         if (HAS_NEXO)
             getLogger().info("Nexo detected: Nexo blocks held in the main hand will not trigger the off-hand swing.");
+
+        MMOHook.init(getServer().getPluginManager());
+        if (MMOHook.hasMMOItems())
+            getLogger().info("MMOItems detected: two handed weapons are blocked, weapon mana/stamina costs and attack speed are applied to the off hand.");
+        if (MMOHook.hasMMOCore())
+            getLogger().info("MMOCore detected: the mana/stamina cost of the off-hand weapon is taken from the player resources.");
 
         new DualWielding();
 

@@ -33,6 +33,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -62,6 +64,25 @@ public class DualWielding implements Listener, CommandExecutor
     private FileConfiguration config;
     private String NEXO_CHECK = "block";
 
+    // MMOItems / MMOCore
+    private boolean MMO_ENABLED = true;
+    private boolean MMO_TWO_HANDED = true;
+    private boolean MMO_BLOCK_TWO_HANDED_OFFHAND = true;
+    private boolean MMO_CANCEL_MAIN_HAND = true;
+    private boolean MMO_COSTS = true;
+    private boolean MMO_NOTIFY = true;
+    private String MMO_NO_MANA = "&cNot enough mana!";
+    private String MMO_NO_STAMINA = "&cNot enough stamina!";
+    private boolean MMO_ATTACK_SPEED = true;
+    private int MMO_MIN_COOLDOWN = 4;
+    private int MMO_MAX_COOLDOWN = 40;
+    private boolean MMO_ALL_WEAPONS = true;
+    private boolean MMO_DURABILITY = false;
+    private boolean OFFHAND_KNOCKBACK = false;
+
+    /** Players whose damage is being applied by us right now (so the two-handed filter ignores it). */
+    private final java.util.Set<java.util.UUID> applyingOffhandDamage = java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
     private final HashMap<Player, Wielder> wielders = new HashMap<>();
 
     /** Adventure components for the cooldown bar, or null when they cannot be built. */
@@ -70,6 +91,8 @@ public class DualWielding implements Listener, CommandExecutor
     private static final String[] COOLDOWN_ANIM_LEGACY;
     private static final int COOLDOWN_STEPS = 8;
     private static final int COOLDOWN_BARS = 9;
+    /** Cooldown used when the weapon does not define one (MMOItems attack speed). */
+    private static final int DEFAULT_COOLDOWN = 12;
     private static final String SECTION = "\u00A7";
 
     static
@@ -154,6 +177,21 @@ public class DualWielding implements Listener, CommandExecutor
         BREAK_PLANTS_BARE_HAND = config.getBoolean("break_plants_bare_hand");
         NEXO_CHECK = config.getString("nexo-check", "block");
 
+        MMO_ENABLED = config.getBoolean("mmoitems.enabled", true);
+        MMO_TWO_HANDED = config.getBoolean("mmoitems.two-handed", true);
+        MMO_BLOCK_TWO_HANDED_OFFHAND = config.getBoolean("mmoitems.block-two-handed-off-hand", true);
+        MMO_CANCEL_MAIN_HAND = config.getBoolean("mmoitems.cancel-main-hand-attack", true);
+        MMO_COSTS = config.getBoolean("mmoitems.apply-weapon-costs", true);
+        MMO_NOTIFY = config.getBoolean("mmoitems.notify-not-enough-mana", true);
+        MMO_NO_MANA = config.getString("mmoitems.not-enough-mana-message", "&cNot enough mana!");
+        MMO_NO_STAMINA = config.getString("mmoitems.not-enough-stamina-message", "&cNot enough stamina!");
+        MMO_ATTACK_SPEED = config.getBoolean("mmoitems.use-attack-speed", true);
+        MMO_MIN_COOLDOWN = config.getInt("mmoitems.min-cooldown", 4);
+        MMO_MAX_COOLDOWN = config.getInt("mmoitems.max-cooldown", 40);
+        MMO_ALL_WEAPONS = config.getBoolean("mmoitems.all-mmoitems-weapons", true);
+        MMO_DURABILITY = config.getBoolean("mmoitems.apply-durability", false);
+        OFFHAND_KNOCKBACK = config.getBoolean("offhand-knockback", false);
+
         Debug.setEnabled(config.getBoolean("debug", false));
 
         String animationMethod = config.getString("offhand-animation-method", "auto");
@@ -233,6 +271,56 @@ public class DualWielding implements Listener, CommandExecutor
             return;
         }
 
+        // Two handed weapons.
+        if (MMO_ENABLED && MMO_TWO_HANDED)
+        {
+            // A two handed weapon is never usable in the off hand, whatever the main hand holds.
+            if (MMO_BLOCK_TWO_HANDED_OFFHAND && MMOHook.isTwoHanded(weapon))
+            {
+                Debug.log("attack skipped: " + weapon.getType() + " is a two handed weapon, it cannot be used in the off hand");
+                return;
+            }
+
+            // MMOItems itself refuses to use a weapon while "hands are too charged" (a two handed
+            // item in one hand + anything else in the other one): nothing at all is done then,
+            // no animation, no damage, no knockback, no mana.
+            if (MMOHook.isEncumbered(player))
+            {
+                Debug.log("attack skipped: hands too charged (two handed weapon + " + player.getInventory().getItemInMainHand().getType() + " in the main hand)");
+                return;
+            }
+        }
+
+        // Mana / stamina cost of the off-hand weapon, exactly like MMOItems does.
+        if (MMO_ENABLED && MMO_COSTS && MMOHook.isMMOItem(weapon))
+        {
+            double mana = MMOHook.manaCost(weapon);
+            double stamina = MMOHook.staminaCost(weapon);
+
+            if (mana > 0 || stamina > 0)
+            {
+                if (MMOHook.hasMMOCore())
+                {
+                    if (mana > 0 && MMOHook.getMana(player) < mana)
+                    {
+                        Debug.log("attack skipped: " + MMOHook.getMana(player) + " mana, the weapon needs " + mana);
+                        notify(player, MMO_NO_MANA);
+                        return;
+                    }
+                    if (stamina > 0 && MMOHook.getStamina(player) < stamina)
+                    {
+                        Debug.log("attack skipped: " + MMOHook.getStamina(player) + " stamina, the weapon needs " + stamina);
+                        notify(player, MMO_NO_STAMINA);
+                        return;
+                    }
+                }
+
+                MMOHook.consumeWeaponCosts(player, weapon);
+                Debug.log("weapon costs applied: " + mana + " mana, " + stamina + " stamina (left: "
+                        + MMOHook.getMana(player) + " mana, " + MMOHook.getStamina(player) + " stamina)");
+            }
+        }
+
         if (!Utils.canDamage(player, damaged))
         {
             Debug.log("attack skipped: another plugin cancelled the damage on " + damaged.getType());
@@ -240,6 +328,7 @@ public class DualWielding implements Listener, CommandExecutor
         }
 
         @Nullable Integer delay = wielder.getDelay();
+        int cooldownTotal = wielder.getCooldownTotal();
         boolean critical = !player.isOnGround() && player.getFallDistance() > 0.0F && !player.hasPotionEffect(PotionEffectType.BLINDNESS) && player.getVehicle() == null;
 
         if (Events.call(new PlayerOffhandAnimationEvent(e)))
@@ -268,7 +357,7 @@ public class DualWielding implements Listener, CommandExecutor
         if (Events.call(new PlayerOffhandReduceDurabilityEvent(e)))
             damageWeapon(player, weapon);
 
-        double computed = getDamage(weapon, player, damaged, critical, delay);
+        double computed = getDamage(weapon, player, damaged, critical, delay, cooldownTotal);
         Debug.log("attack: weapon=" + weapon.getType() + " critical=" + critical + " delay=" + delay + " damage=" + computed);
 
         PlayerDamageEntityWithOffhandEvent apiDamageEvent = new PlayerDamageEntityWithOffhandEvent(e, computed);
@@ -276,27 +365,32 @@ public class DualWielding implements Listener, CommandExecutor
         {
             if (!damaged.isInvulnerable())
             {
-                float multiply = 0.5f;
-                float height = 0.5f;
-                if (weapon.containsEnchantment(Enchantment.KNOCKBACK))
+                // Off by default: on MMOItems/MMOCore servers the knockback is part of the
+                // plugin combat system and pushing the target again would fight with it.
+                if (OFFHAND_KNOCKBACK)
                 {
-                    multiply += weapon.getEnchantmentLevel(Enchantment.KNOCKBACK) * 0.5f;
-                    height += weapon.getEnchantmentLevel(Enchantment.KNOCKBACK) * 0.3f;
-                }
+                    float multiply = 0.5f;
+                    float height = 0.5f;
+                    if (weapon.containsEnchantment(Enchantment.KNOCKBACK))
+                    {
+                        multiply += weapon.getEnchantmentLevel(Enchantment.KNOCKBACK) * 0.5f;
+                        height += weapon.getEnchantmentLevel(Enchantment.KNOCKBACK) * 0.3f;
+                    }
 
-                boolean isOnHair = damaged.getLocation().getBlock().getRelative(BlockFace.DOWN).getType() == Material.AIR;
+                    boolean isOnHair = damaged.getLocation().getBlock().getRelative(BlockFace.DOWN).getType() == Material.AIR;
 
-                if (config.getBoolean("can-attack-mob-in-air") && isOnHair)
-                {
-                    Vector direction = player.getLocation().getDirection().multiply(multiply);
-                    direction.setY(direction.getY() + height);
-                    damaged.setVelocity(direction);
-                }
-                else if (!config.getBoolean("can-attack-mob-in-air") && !isOnHair)
-                {
-                    Vector direction = player.getLocation().getDirection().multiply(multiply);
-                    direction.setY(direction.getY() + height);
-                    damaged.setVelocity(direction);
+                    if (config.getBoolean("can-attack-mob-in-air") && isOnHair)
+                    {
+                        Vector direction = player.getLocation().getDirection().multiply(multiply);
+                        direction.setY(direction.getY() + height);
+                        damaged.setVelocity(direction);
+                    }
+                    else if (!config.getBoolean("can-attack-mob-in-air") && !isOnHair)
+                    {
+                        Vector direction = player.getLocation().getDirection().multiply(multiply);
+                        direction.setY(direction.getY() + height);
+                        damaged.setVelocity(direction);
+                    }
                 }
 
                 if (weapon.containsEnchantment(Enchantment.FIRE_ASPECT))
@@ -306,11 +400,16 @@ public class DualWielding implements Listener, CommandExecutor
                 double before = damaged.getHealth();
                 try
                 {
+                    applyingOffhandDamage.add(player.getUniqueId());
                     damaged.damage(damage, player);
                 }
                 catch (Throwable t)
                 {
                     Main.inst.getLogger().warning("[RealDualWield] could not damage " + damaged.getType() + ": " + t);
+                }
+                finally
+                {
+                    applyingOffhandDamage.remove(player.getUniqueId());
                 }
                 Debug.log("damage " + damage + " on " + damaged.getType() + ": health " + before + " -> " + damaged.getHealth()
                         + (damaged.getHealth() >= before ? " (the attack did nothing)" : ""));
@@ -322,8 +421,87 @@ public class DualWielding implements Listener, CommandExecutor
             if (!wielder.isUsingLeftWeapon())
             {
                 wielder.setUsingLeftWeapon(true);
-                playCooldownAnimation(wielder);
+                int ticks = cooldownTicks(weapon);
+                wielder.setCooldownTotal(ticks);
+                Debug.log("cooldown: " + ticks + " ticks (weapon " + weapon.getType() + ")");
+                playCooldownAnimation(wielder, ticks);
             }
+        }
+    }
+
+    /**
+     * True when the off-hand item cannot be used at all: either it is a two handed weapon, or the
+     * player is in the MMOItems "hands too charged" state (two handed in one hand + something in
+     * the other one, catalysts excluded).
+     */
+    private boolean isOffHandBlocked(Player player, ItemStack offHand)
+    {
+        if (!MMO_ENABLED || !MMO_TWO_HANDED)
+            return false;
+
+        if (MMO_BLOCK_TWO_HANDED_OFFHAND && MMOHook.isTwoHanded(offHand))
+            return true;
+
+        return MMOHook.isEncumbered(player);
+    }
+
+    /**
+     * Length of the off-hand cooldown in ticks.
+     *
+     * <p>For MMOItems weapons the value comes from the item attack speed (attacks per second),
+     * clamped between {@code mmoitems.min-cooldown} and {@code mmoitems.max-cooldown}; for every
+     * other item the vanilla-ish default of 12 ticks is used.
+     */
+    private int cooldownTicks(ItemStack weapon)
+    {
+        if (MMO_ENABLED && MMO_ATTACK_SPEED && MMOHook.isMMOItem(weapon))
+        {
+            double speed = MMOHook.attackSpeed(weapon);
+            if (speed > 0)
+            {
+                int ticks = (int) Math.round(20.0 / speed);
+                int min = MMO_MIN_COOLDOWN > 0 ? MMO_MIN_COOLDOWN : 1;
+                int max = MMO_MAX_COOLDOWN >= min ? MMO_MAX_COOLDOWN : min;
+                return Math.max(min, Math.min(max, ticks));
+            }
+        }
+
+        return DEFAULT_COOLDOWN;
+    }
+
+    /** Sends a message configured by the admin (supports &amp; colour codes). */
+    private void notify(Player player, String message)
+    {
+        if (!MMO_NOTIFY || message == null || message.isEmpty())
+            return;
+
+        sendMessage(player, message.replace('&', SECTION.charAt(0)), NamedTextColor.RED, "");
+    }
+
+    /**
+     * Two handed weapons also disable the MAIN hand while the player is encumbered, so that
+     * holding two weapons "does not work at all", like MMOItems' own item restriction.
+     */
+    @EventHandler
+    public void onEntityDamageByEntity(EntityDamageByEntityEvent e)
+    {
+        if (!MMO_ENABLED || !MMO_TWO_HANDED || !MMO_CANCEL_MAIN_HAND)
+            return;
+
+        if (e.getCause() != EntityDamageEvent.DamageCause.ENTITY_ATTACK)
+            return;
+
+        if (!(e.getDamager() instanceof Player player))
+            return;
+
+        // Never block the off-hand hit we are applying ourselves.
+        if (applyingOffhandDamage.contains(player.getUniqueId()))
+            return;
+
+        if (MMOHook.isEncumbered(player))
+        {
+            e.setCancelled(true);
+            Debug.log("main hand attack cancelled: " + player.getName() + " is holding a two handed weapon and something in the other hand");
         }
     }
 
@@ -348,6 +526,11 @@ public class DualWielding implements Listener, CommandExecutor
 
         // Handle blocks interaction particle.
         if (!player.hasPermission("rdw.use") || wielder.isUsingLeftWeapon())
+            return;
+
+        // Two handed: no off-hand swing at all while the hands are "too charged", and never for a
+        // two handed weapon sitting in the off hand.
+        if (isOffHandBlocked(player, player.getInventory().getItemInOffHand()))
             return;
 
         if (config.getBoolean("deny-longpress-rightclick") && e.getAction().equals(Action.RIGHT_CLICK_AIR) && holding)
@@ -473,6 +656,14 @@ public class DualWielding implements Listener, CommandExecutor
      */
     private void damageWeapon(Player player, ItemStack weapon)
     {
+        // MMOItems has its own durability system and many textured items rely on a fixed item
+        // damage value (texture by durability): vanilla durability is left alone by default.
+        if (MMO_ENABLED && !MMO_DURABILITY && MMOHook.isMMOItem(weapon))
+        {
+            Debug.log("durability skipped: MMOItems item (mmoitems.apply-durability is false)");
+            return;
+        }
+
         ItemMeta meta = weapon.getItemMeta();
         if (!(meta instanceof Damageable damageable) || meta.isUnbreakable() || !damageable.hasMaxDamage())
             return;
@@ -493,10 +684,12 @@ public class DualWielding implements Listener, CommandExecutor
         }
     }
 
-    private void playCooldownAnimation(Wielder wielder)
+    private void playCooldownAnimation(Wielder wielder, int ticks)
     {
         if (wielder.getDelay() != null)
             return;
+
+        final int total = Math.max(1, ticks);
 
         new BukkitRunnable()
         {
@@ -506,10 +699,9 @@ public class DualWielding implements Listener, CommandExecutor
             public void run()
             {
                 count += 1;
-                // 1 : 12 = x : dualWieldDelays.get(player)
-                // dualWieldDelays.get(player) * 1 / 12
-                if (12 - count > 0)
-                    wielder.setDelay(12 - count);
+                // The damage of the next hit is scaled by the remaining cooldown.
+                if (total - count > 0)
+                    wielder.setDelay(total - count);
 
                 if (count <= COOLDOWN_STEPS)
                 {
@@ -519,7 +711,7 @@ public class DualWielding implements Listener, CommandExecutor
                         animIndex++;
                     }
                 }
-                else if (count > 12)
+                else if (count > total)
                 {
                     if (config.getBoolean("show-cooldown-bar"))
                         clearCooldownBar(wielder.getPlayer());
@@ -581,7 +773,16 @@ public class DualWielding implements Listener, CommandExecutor
         if (offHand == null || offHand.getType() == Material.AIR)
             return false;
 
-        return DUAL_WIELD_ENABLED_MATERIALS.contains(offHand.getType().toString());
+        if (DUAL_WIELD_ENABLED_MATERIALS.contains(offHand.getType().toString()))
+            return true;
+
+        // MMOItems weapons are enabled even when their vanilla material is not in the list:
+        // textured items are often based on paper, sticks, bones... and MMOItems already knows
+        // which of its items are weapons.
+        if (MMO_ENABLED && MMO_ALL_WEAPONS && MMOHook.isWeapon(offHand))
+            return true;
+
+        return false;
     }
 
     boolean isIgnorable(Entity entity)
@@ -678,10 +879,13 @@ public class DualWielding implements Listener, CommandExecutor
             MATERIAL_DAMAGE.put(name, damage);
     }
 
-    static double getDamage(ItemStack item, Player player, LivingEntity damaged, boolean critical, @Nullable Integer delay)
+    static double getDamage(ItemStack item, Player player, LivingEntity damaged, boolean critical, @Nullable Integer delay, int cooldownTotal)
     {
         if (delay != null)
-            return getDamage(item, player, damaged, critical) * (delay * 1.0f / 12.0f);
+        {
+            int total = cooldownTotal <= 0 ? DEFAULT_COOLDOWN : cooldownTotal;
+            return getDamage(item, player, damaged, critical) * (delay * 1.0f / total);
+        }
         return getDamage(item, player, damaged, critical);
     }
 }

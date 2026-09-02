@@ -41,6 +41,57 @@ debug: false
 #   false - never check Nexo
 nexo-check: block
 
+# Knockback applied by the off-hand attack. Keep it off: on MMOItems/MMOCore servers the
+# knockback belongs to the combat system of those plugins.
+offhand-knockback: false
+
+# ---------------------------------------------------------------------------
+# MMOItems / MMOCore
+# ---------------------------------------------------------------------------
+mmoitems:
+
+  # Master switch. With false the plugin ignores MMOItems/MMOCore completely.
+  enabled: true
+
+  # Two Handed weapons (the very same check MMOItems does before using a weapon):
+  #   * a two handed weapon in the OFF hand never attacks: no damage, no knockback,
+  #     no animation, no mana spent;
+  #   * a two handed weapon in the MAIN hand disables both hands (see below).
+  # Catalysts (items with the "Handworn" stat) never count as the second item.
+  two-handed: true
+
+  # Blocks a two handed weapon held in the off hand even when the main hand is empty.
+  block-two-handed-off-hand: true
+
+  # While the hands are "too charged", also cancel the attacks of the main hand, so that holding
+  # a two handed weapon plus another weapon does not work at all (MMOItems' item restriction).
+  cancel-main-hand-attack: true
+
+  # Applies the Mana Cost / Stamina Cost of the off-hand weapon, exactly like MMOItems does.
+  # Needs MMOCore: with MMOItems alone the cost is ignored.
+  apply-weapon-costs: true
+
+  # Tells the player when he does not have enough mana/stamina for the off-hand weapon.
+  notify-not-enough-mana: true
+  not-enough-mana-message: '&cNot enough mana!'
+  not-enough-stamina-message: '&cNot enough stamina!'
+
+  # Uses the MMOItems attack speed of the off-hand weapon as cooldown instead of 12 ticks
+  # (20 / attacks-per-second, clamped between min-cooldown and max-cooldown).
+  use-attack-speed: true
+  min-cooldown: 4
+  max-cooldown: 40
+
+  # Every MMOItems weapon can be used in the off hand even when its vanilla material is not
+  # listed in dual_wield_enabled.materials below. Needed for textured weapons based on paper,
+  # sticks, bones... (custom model data / itemsadder / Nexo textures keep working: the plugin
+  # never modifies the item).
+  all-mmoitems-weapons: true
+
+  # Applies the vanilla durability loss to MMOItems items. Leave it on false: MMOItems has its
+  # own durability system and changing the item damage breaks "texture by durability" items.
+  apply-durability: false
+
 # Materials that can be used as an off-hand weapon.
 dual_wield_enabled:
   materials:
