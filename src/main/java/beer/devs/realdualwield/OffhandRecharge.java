@@ -41,21 +41,26 @@ import java.util.logging.Level;
  * content) from the one the client is drawing, the client lowers the weapon to swap it and raises it
  * again (~3 ticks down, ~3 up). That is the only lever a server has on the off-hand weapon.
  *
+ * <p><b>hold</b> (default) keeps the weapon down for the WHOLE recharge: while it is down a
+ * different copy of it is shown every single tick, and when the recharge is over the real item is
+ * sent back and the client raises the weapon in ~3 ticks. The length is the recharge of the weapon,
+ * so a slow sword stays down much longer than a fast one, like the main hand does. It has two
+ * limits, both structural: (1) a packet has to land inside every single client tick, and when the
+ * server hiccups the client raises the weapon by 0.4 and the next packet slams it down again (the
+ * visible "up and down" glitch); (2) the profile cannot be the vanilla one, because the main hand
+ * follows a cubic curve (it creeps up from the middle of the recharge) while the off hand can only
+ * be fully down or fully up, so it stays down and comes up in the last 3 ticks.
+ *
  * <p><b>dip</b> sends ONE packet per hit: the weapon goes down and comes back up in ~6 ticks. It is
  * completely deterministic (a single change, then the client does the rest by itself), it costs one
- * packet per hit and it can never glitch.
+ * packet per hit and it can never glitch, but its length is always the same and does NOT follow the
+ * attack speed of the weapon.
  *
- * <p><b>hold</b> tries to keep the weapon down for the WHOLE recharge by sending a different copy
- * every tick. It is <b>experimental</b>: it needs a packet to land inside every single client tick,
- * and when one is late (or the server hiccups) the client raises the weapon by 0.4 and the next
- * packet slams it down again, which is the visible "up and down" glitch. On top of that the profile
- * is not the vanilla one: the main hand rises along a cubic curve (it starts coming up soon and
- * arrives at the end), while this one stays flat at the bottom and pops up in the last 3 ticks.
- *
- * <p><b>cooldown</b> (default) is the plain vanilla alternative: the off-hand weapon gets a
+ * <p><b>cooldown</b> is the plain vanilla alternative: the off-hand weapon gets a
  * {@code minecraft:use_cooldown} component with its own cooldown group and every hit puts that group
  * on cooldown, so the item shows the white recharge bar in the off-hand slot for exactly the
- * recharge time of the weapon.
+ * recharge time of the weapon. It is the HUD bar, not the weapon moving in 3D: and since writing
+ * the component changes the item, the client plays its swap animation on top of it (one short dip).
  *
  * <p>Nothing of the real item is ever touched by dip/hold: the copies only exist inside the packets,
  * so MMOItems stats, Nexo/MMOItems textures, durability and custom model data are untouched.
@@ -68,7 +73,7 @@ public final class OffhandRecharge
         NONE,
         /** One deterministic dip per hit: ~3 ticks down, ~3 ticks up. */
         DIP,
-        /** Experimental: hold the weapon down for the whole recharge (one packet per tick). */
+        /** Lower the off-hand weapon for the whole recharge (one packet per tick). */
         HOLD,
         /** Vanilla item cooldown (white bar) on the off-hand weapon. */
         COOLDOWN
@@ -83,7 +88,7 @@ public final class OffhandRecharge
     /** Below this the effect is not even visible, so it is not worth a single packet. */
     private static final int MIN_TICKS = 4;
 
-    private static volatile Mode mode = Mode.COOLDOWN;
+    private static volatile Mode mode = Mode.HOLD;
     private static volatile Strategy strategy;
     private static volatile boolean resolved;
 
@@ -100,7 +105,7 @@ public final class OffhandRecharge
      */
     public static synchronized void setMode(Mode newMode)
     {
-        mode = newMode == null ? Mode.COOLDOWN : newMode;
+        mode = newMode == null ? Mode.HOLD : newMode;
         strategy = null;
         resolved = false;
 
@@ -134,7 +139,7 @@ public final class OffhandRecharge
             default:
             {
                 Strategy s = strategy;
-                return "experimental: the weapon is held down for the whole recharge ("
+                return "the weapon is lowered for the whole recharge, one packet per tick ("
                         + (s == null ? "not resolved yet" : s.describe()) + ")";
             }
         }

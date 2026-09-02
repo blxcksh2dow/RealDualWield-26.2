@@ -66,25 +66,29 @@ offhand-swing-animation: auto
 # only lever the client leaves us: when the item in the inventory differs (by content) from the one
 # it is drawing, it lowers the weapon to "swap" it and raises it again (~3 ticks down, ~3 up).
 #
-#   cooldown - (default) vanilla item cooldown: the off-hand weapon shows the white recharge bar of
-#              Minecraft for EXACTLY the recharge time of the weapon, without a single glitch and
-#              with one packet per hit (it writes minecraft:use_cooldown on the item, with a
-#              cooldown group of its own). It is the HUD bar, not the weapon moving in 3D.
+#   hold     - (default) the weapon really goes down and stays down for THE WHOLE recharge, then
+#              comes back up: its length follows the attack speed of the weapon (a slow sword stays
+#              down much longer), like the vanilla main hand. Costs one packet per tick (2-3 KB each)
+#              and has two limits, both structural: (1) a packet has to land inside every single
+#              client tick, and when the server hiccups the weapon jumps up by 0.4 and comes back
+#              down (the "up and down" glitch, more visible with slow weapons); (2) the profile is
+#              not exactly the vanilla one, because the main hand rises along a cubic curve (it
+#              creeps up from the middle of the recharge) while the off hand can only be fully down
+#              or fully up, so it stays down and comes up in the last 3 ticks.
 #   dip      - the weapon physically dips on every off-hand hit: one packet per hit, ~3 ticks down
 #              and ~3 ticks up, decided entirely client side, so it can never glitch. The length is
 #              always the same (~6 ticks): it does NOT follow the attack speed.
-#   hold     - EXPERIMENTAL: keeps the weapon down for the whole recharge by sending a different
-#              copy every tick. It needs a packet to land inside every single client tick, and when
-#              one is late the client raises the weapon by 0.4 and the next one slams it down again
-#              (the "up and down" glitch, very visible with slow weapons). Its profile is not the
-#              vanilla one either: the main hand rises along a cubic curve, this stays flat at the
-#              bottom and pops up in the last 3 ticks. One packet per tick (2-3 KB each).
+#   cooldown - vanilla item cooldown: the off-hand weapon shows the white recharge bar of Minecraft
+#              for EXACTLY the recharge time of the weapon, with one packet per hit and no glitch.
+#              It is the HUD bar, not the weapon moving in 3D: it writes minecraft:use_cooldown on
+#              the item (with a cooldown group of its own), and since that changes the item the
+#              client also plays a short dip of its own.
 #   none     - no recharge feedback at all.
 #
 # With an item model that disables the swap animation in the resource pack
 # (hand_animation_on_swap: false) dip and hold have nothing to animate: use cooldown in that case.
 # None of these touches the real item except cooldown, which only writes the use_cooldown component.
-offhand-recharge: cooldown
+offhand-recharge: hold
 
 # Knockback applied by the off-hand attack. Keep it off: on MMOItems/MMOCore servers the
 # knockback belongs to the combat system of those plugins.

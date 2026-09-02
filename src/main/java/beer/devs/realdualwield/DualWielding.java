@@ -235,13 +235,13 @@ public class DualWielding implements Listener, CommandExecutor
         OFFHAND_DELAY_TICKS = config.getInt("offhand-delay-after-main-hand", 8);
         SWING_ANIMATION = String.valueOf(config.get("offhand-swing-animation", "auto"));
 
-        String recharge = config.getString("offhand-recharge", "cooldown");
-        switch (recharge == null ? "cooldown" : recharge.toLowerCase(Locale.ROOT))
+        String recharge = config.getString("offhand-recharge", "hold");
+        switch (recharge == null ? "hold" : recharge.toLowerCase(Locale.ROOT))
         {
             case "none", "off", "false", "disabled" -> OffhandRecharge.setMode(OffhandRecharge.Mode.NONE);
-            case "dip", "bob", "swap" -> OffhandRecharge.setMode(OffhandRecharge.Mode.DIP);
-            case "hold", "long", "down", "experimental" -> OffhandRecharge.setMode(OffhandRecharge.Mode.HOLD);
-            default -> OffhandRecharge.setMode(OffhandRecharge.Mode.COOLDOWN);
+            case "dip", "bob", "swap", "short" -> OffhandRecharge.setMode(OffhandRecharge.Mode.DIP);
+            case "cooldown", "bar", "vanilla" -> OffhandRecharge.setMode(OffhandRecharge.Mode.COOLDOWN);
+            default -> OffhandRecharge.setMode(OffhandRecharge.Mode.HOLD);
         }
 
         Debug.setEnabled(config.getBoolean("debug", false));
