@@ -28,6 +28,19 @@ break_plants_bare_hand: true
 #            you do not run ProtocolLib or if another plugin conflicts with the animation packet.
 offhand-animation-method: auto
 
+# Prints in the console what the plugin is doing and, above all, *why* an off-hand attack is
+# skipped. Enable it, hit a mob with the off-hand and read the lines starting with
+# [RealDualWield][debug] if something does not work. Turn it off once you are done: it is chatty.
+debug: false
+
+# Nexo support: when the main hand holds a Nexo block the right click places it, so the off-hand
+# swing is skipped, exactly like for vanilla blocks.
+#
+#   block - (default) skip the swing only for Nexo custom blocks
+#   item  - skip the swing for every Nexo item held in the main hand
+#   false - never check Nexo
+nexo-check: block
+
 # Materials that can be used as an off-hand weapon.
 dual_wield_enabled:
   materials:

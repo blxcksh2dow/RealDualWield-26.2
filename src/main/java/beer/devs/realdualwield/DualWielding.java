@@ -60,6 +60,7 @@ public class DualWielding implements Listener, CommandExecutor
     public static boolean BREAK_PLANTS_BARE_HAND;
 
     private FileConfiguration config;
+    private String NEXO_CHECK = "block";
 
     private final HashMap<Player, Wielder> wielders = new HashMap<>();
 
@@ -151,6 +152,9 @@ public class DualWielding implements Listener, CommandExecutor
         DUAL_WIELD_ENABLED_MATERIALS = config.getStringList("dual_wield_enabled.materials");
         DENY_LONGPRESS_RIGHTCLICK = config.getBoolean("deny-longpress-rightclick");
         BREAK_PLANTS_BARE_HAND = config.getBoolean("break_plants_bare_hand");
+        NEXO_CHECK = config.getString("nexo-check", "block");
+
+        Debug.setEnabled(config.getBoolean("debug", false));
 
         String animationMethod = config.getString("offhand-animation-method", "auto");
         OffhandAnimation.Mode mode;
@@ -204,14 +208,36 @@ public class DualWielding implements Listener, CommandExecutor
 
         Player player = e.getPlayer();
         Wielder wielder = getPlayerData(player);
-        if (config.getBoolean("deny-longpress-rightclick") && wielder.isHoldingRightClick())
-            return;
-
         ItemStack weapon = e.getPlayer().getInventory().getItemInOffHand();
-        if (damaged.isInvulnerable() || damaged.isDead() || !Utils.canDamage(player, damaged) || isIgnorable(damaged) || !isEnabled(weapon))
+
+        Debug.log("interact entity: player=" + player.getName() + " target=" + damaged.getType()
+                + " hand=" + e.getHand() + " weapon=" + weapon.getType() + " enabled=" + isEnabled(weapon));
+
+        // Must be computed before updating the timestamp: two events closer than the threshold mean
+        // the button was not released.
+        boolean holding = wielder.isHoldingRightClick();
+        wielder.markEntityInteract();
+
+        if (config.getBoolean("deny-longpress-rightclick") && holding)
+        {
+            Debug.log("attack skipped: right click held (deny-longpress-rightclick)");
+            return;
+        }
+
+        if (damaged.isInvulnerable() || damaged.isDead() || isIgnorable(damaged))
             return;
 
-        wielder.setTimeNow();
+        if (!isEnabled(weapon))
+        {
+            Debug.log("attack skipped: " + weapon.getType() + " is not in dual_wield_enabled.materials");
+            return;
+        }
+
+        if (!Utils.canDamage(player, damaged))
+        {
+            Debug.log("attack skipped: another plugin cancelled the damage on " + damaged.getType());
+            return;
+        }
 
         @Nullable Integer delay = wielder.getDelay();
         boolean critical = !player.isOnGround() && player.getFallDistance() > 0.0F && !player.hasPotionEffect(PotionEffectType.BLINDNESS) && player.getVehicle() == null;
@@ -242,7 +268,10 @@ public class DualWielding implements Listener, CommandExecutor
         if (Events.call(new PlayerOffhandReduceDurabilityEvent(e)))
             damageWeapon(player, weapon);
 
-        PlayerDamageEntityWithOffhandEvent apiDamageEvent = new PlayerDamageEntityWithOffhandEvent(e, getDamage(weapon, player, damaged, critical, delay));
+        double computed = getDamage(weapon, player, damaged, critical, delay);
+        Debug.log("attack: weapon=" + weapon.getType() + " critical=" + critical + " delay=" + delay + " damage=" + computed);
+
+        PlayerDamageEntityWithOffhandEvent apiDamageEvent = new PlayerDamageEntityWithOffhandEvent(e, computed);
         if (Events.call(apiDamageEvent))
         {
             if (!damaged.isInvulnerable())
@@ -274,7 +303,17 @@ public class DualWielding implements Listener, CommandExecutor
                     damaged.setFireTicks(80 * weapon.getEnchantmentLevel(Enchantment.FIRE_ASPECT));
 
                 double damage = apiDamageEvent.getDamage();
-                damaged.damage(damage, player);
+                double before = damaged.getHealth();
+                try
+                {
+                    damaged.damage(damage, player);
+                }
+                catch (Throwable t)
+                {
+                    Main.inst.getLogger().warning("[RealDualWield] could not damage " + damaged.getType() + ": " + t);
+                }
+                Debug.log("damage " + damage + " on " + damaged.getType() + ": health " + before + " -> " + damaged.getHealth()
+                        + (damaged.getHealth() >= before ? " (the attack did nothing)" : ""));
             }
         }
 
@@ -297,7 +336,9 @@ public class DualWielding implements Listener, CommandExecutor
         Player player = e.getPlayer();
         Block block = e.getClickedBlock();
         Wielder wielder = getPlayerData(player);
-        wielder.setTimeNow();
+
+        boolean holding = wielder.isHoldingInteract();
+        wielder.markInteract();
 
         if (!e.isCancelled())
         {
@@ -309,8 +350,11 @@ public class DualWielding implements Listener, CommandExecutor
         if (!player.hasPermission("rdw.use") || wielder.isUsingLeftWeapon())
             return;
 
-        if (config.getBoolean("deny-longpress-rightclick") && e.getAction().equals(Action.RIGHT_CLICK_AIR) && wielder.isHoldingRightClick())
+        if (config.getBoolean("deny-longpress-rightclick") && e.getAction().equals(Action.RIGHT_CLICK_AIR) && holding)
+        {
+            Debug.log("interact skipped: right click held (deny-longpress-rightclick)");
             return;
+        }
 
         if (!Events.call(new PlayerOffhandAnimationEvent(e)))
             return;
@@ -320,8 +364,11 @@ public class DualWielding implements Listener, CommandExecutor
 
         if (e.getAction().equals(Action.RIGHT_CLICK_BLOCK) || e.getAction().equals(Action.RIGHT_CLICK_AIR))
         {
-            if (itemMainHand.getType().isBlock() || (Main.HAS_ITEMSADDER && ItemsAdderHook.isCustomBlock(itemMainHand)))
+            if (itemMainHand.getType().isBlock() || isNexoBlockInMainHand(itemMainHand))
+            {
+                Debug.log("interact skipped: the main hand holds a placeable block (" + itemMainHand.getType() + ")");
                 return;
+            }
 
             if (isEnabled(itemOffHand) && !wielder.isUsingLeftWeapon())
             {
@@ -390,6 +437,32 @@ public class DualWielding implements Listener, CommandExecutor
                 player.spawnParticle(Particle.BLOCK, loc.getX(), loc.getY(), loc.getZ(), 2, offset.getX(), offset.getY(), offset.getZ(), block.getType().createBlockData());
             }
         }
+    }
+
+    /**
+     * Nexo support: when the main hand holds a Nexo block the right click would place it, so the
+     * off-hand swing is skipped, exactly like for vanilla blocks.
+     *
+     * <p>{@code nexo-check} in config.yml:
+     * <ul>
+     *     <li>{@code block} (default): only Nexo custom blocks are skipped</li>
+     *     <li>{@code item}: every Nexo item held in the main hand is skipped</li>
+     *     <li>{@code false}: the check is disabled</li>
+     * </ul>
+     */
+    private boolean isNexoBlockInMainHand(ItemStack item)
+    {
+        if (!Main.HAS_NEXO || NEXO_CHECK == null)
+            return false;
+
+        String mode = NEXO_CHECK.toLowerCase(Locale.ROOT);
+        if (mode.equals("false") || mode.equals("none") || mode.equals("off") || mode.equals("disabled"))
+            return false;
+
+        if (mode.equals("item") || mode.equals("any"))
+            return NexoHook.idFromItem(item) != null;
+
+        return NexoHook.isCustomBlock(item);
     }
 
     /**

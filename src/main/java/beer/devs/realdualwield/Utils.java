@@ -17,6 +17,8 @@ import java.util.Random;
 
 public class Utils
 {
+    private static boolean damageCheckFailed = false;
+
     static final Random RANDOM = new Random();
 
     @SuppressWarnings("unused")
@@ -63,12 +65,26 @@ public class Utils
      */
     public static boolean canDamage(Player attacker, Entity damaged)
     {
-        EntityDamageByEntityEvent event = new EntityDamageByEntityEvent(attacker, damaged,
-                EntityDamageEvent.DamageCause.ENTITY_ATTACK, 0.0D);
+        try
+        {
+            EntityDamageByEntityEvent event = new EntityDamageByEntityEvent(attacker, damaged,
+                    EntityDamageEvent.DamageCause.ENTITY_ATTACK, 0.0D);
 
-        Bukkit.getPluginManager().callEvent(event);
-        boolean canDamage = !event.isCancelled();
-        event.setCancelled(true);
-        return canDamage;
+            Bukkit.getPluginManager().callEvent(event);
+            boolean canDamage = !event.isCancelled();
+            event.setCancelled(true);
+            return canDamage;
+        }
+        catch (Throwable t)
+        {
+            // A third-party listener blew up while inspecting our "test" event: it must not be able
+            // to disable the off-hand attack, so the attack is allowed and the problem is logged once.
+            if (!damageCheckFailed)
+            {
+                damageCheckFailed = true;
+                Main.inst.getLogger().warning("[RealDualWield] the damage check failed (" + t + "): the off-hand attack is allowed anyway.");
+            }
+            return true;
+        }
     }
 }

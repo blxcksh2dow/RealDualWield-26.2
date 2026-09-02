@@ -92,8 +92,11 @@ Oltre al fix dell'animazione, il codice è stato allineato alle API moderne:
   con quello semplice (stesso risultato, danno 0, serve solo per chiedere agli altri plugin se
   l'attacco è consentito).
 - **ProtocolLib da `depend` a `softdepend`**: il plugin ora funziona anche senza.
-- **ItemsAdder** agganciato via reflection (`ItemsAdderHook`): non serve più il repository Maven
-  `maven.devs.beer` per compilare e non si rompe se l'API cambia.
+- **Nexo al posto di ItemsAdder**: il controllo "l'oggetto nella mano principale è un blocco
+  custom" ora usa `com.nexomc.nexo.api.NexoItems` / `NexoBlocks`, agganciati via reflection
+  (`NexoHook`): nessuna dipendenza in compilazione, nessun errore se l'API cambia o se Nexo non
+  c'è. In `config.yml` l'opzione `nexo-check` decide se considerare solo i blocchi Nexo
+  (`block`, default), tutti gli item Nexo (`item`) o niente (`false`).
 - **Task del cooldown spostato sul main thread** (mandava title in async).
 - Piccoli controlli null-safety in più (attributi armor mancanti, blocco nullo, item nullo).
 - `plugin.yml` + `config.yml` documentati, aggiunte le permission `rdw.use` / `rdw.reload`.
@@ -109,6 +112,14 @@ se un server dovesse avere una versione di Adventure diversa da quella contro cu
 compilato il plugin, il plugin parte comunque e la barra di cooldown continua a funzionare. Lo
 stesso vale per l'animazione: se il pacchetto non arriva a nessuno, si passa da solo a
 `swingOffHand()`.
+
+### Debug
+
+Se l'attacco con la seconda mano non fa danno, metti `debug: true` in `config.yml` e fai
+`/rdwreload`. Ogni click destro scrive in console una riga `[RealDualWield][debug]` con arma,
+bersaglio, danno calcolato e salute prima/dopo; se l'attacco viene saltato la riga dice
+esattamente **quale** controllo lo ha bloccato (long press, materiale non abilitato, un altro
+plugin che ha annullato il danno, ...). Ricordati di rimettere `debug: false`: è verboso.
 
 ---
 

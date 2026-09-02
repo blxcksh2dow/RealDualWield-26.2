@@ -14,8 +14,18 @@ import org.jetbrains.annotations.Nullable;
 
 class Wielder
 {
+    /**
+     * Two consecutive interaction events closer than this are considered a "held" right click
+     * (the button was never released) instead of two separate clicks.
+     */
+    private static final long HOLD_THRESHOLD_MS = 120;
+
     public final Player player;
     private long time;
+    private long lastInteractTime;
+    private long lastInteractGap;
+    private long lastEntityInteractTime;
+    private long lastEntityInteractGap;
     private boolean usingLeftWeapon;
     private @Nullable Integer delay;
 
@@ -65,12 +75,67 @@ class Wielder
         return player;
     }
 
+    /**
+     * Answers whether the player is holding the right button down, looking only at the
+     * {@link org.bukkit.event.player.PlayerInteractEvent} (main hand) stream.
+     *
+     * <p>The two kinds of interaction are tracked separately on purpose. The 1.2x implementation
+     * compared the entity interaction with the timestamp of the *previous generic* interaction,
+     * with an inverted comparison: the off-hand attack only went through when a
+     * {@code PlayerInteractEvent} had been fired less than 120&nbsp;ms before. On Minecraft 26.2 the
+     * two events are delivered in the opposite order (the entity one first), so that test was
+     * always true, every attack was skipped and only the swing animation - which comes from
+     * {@code PlayerInteractEvent} - was played.
+     *
+     * <p>The check is now self contained: each stream keeps its own timestamps, and a button is
+     * considered "held" only after two consecutive events closer than
+     * {@link #HOLD_THRESHOLD_MS}, which never happens on a plain click, whatever the event order.
+     */
+    public boolean isHoldingInteract()
+    {
+        if (!DualWielding.DENY_LONGPRESS_RIGHTCLICK)
+            return false;
+
+        return isHeld(lastInteractTime, lastInteractGap);
+    }
+
+    public void markInteract()
+    {
+        long now = System.currentTimeMillis();
+        this.lastInteractGap = now - lastInteractTime;
+        this.lastInteractTime = now;
+        setTimeNow();
+    }
+
+    /**
+     * Answers whether the player is holding the right button down, looking only at the entity
+     * interaction events ({@link org.bukkit.event.player.PlayerInteractEntityEvent}).
+     *
+     * @see #isHoldingInteract() why the two streams are kept apart.
+     */
     public boolean isHoldingRightClick()
     {
         if (!DualWielding.DENY_LONGPRESS_RIGHTCLICK)
             return false;
 
-        return System.currentTimeMillis() - getTime() > 120;
+        return isHeld(lastEntityInteractTime, lastEntityInteractGap);
+    }
+
+    private boolean isHeld(long last, long lastGap)
+    {
+        if (last == 0)
+            return false;
+
+        long now = System.currentTimeMillis();
+        return now - last < HOLD_THRESHOLD_MS && lastGap < HOLD_THRESHOLD_MS;
+    }
+
+    public void markEntityInteract()
+    {
+        long now = System.currentTimeMillis();
+        this.lastEntityInteractGap = now - lastEntityInteractTime;
+        this.lastEntityInteractTime = now;
+        setTimeNow();
     }
 
     public void instamine(Block block, ItemStack weapon)

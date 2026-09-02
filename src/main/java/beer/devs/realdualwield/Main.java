@@ -4,9 +4,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 public class Main extends JavaPlugin
 {
-    /** Kept for API compatibility with plugins built against RealDualWield 1.2.0. */
-    @SuppressWarnings("unused")
-    static boolean HAS_ITEMSADDER = false;
+    /** True when Nexo is installed and its API is usable. */
+    static boolean HAS_NEXO = false;
 
     public static Main inst;
 
@@ -17,9 +16,9 @@ public class Main extends JavaPlugin
 
         saveDefaultConfig();
 
-        HAS_ITEMSADDER = ItemsAdderHook.init(getServer().getPluginManager());
-        if (HAS_ITEMSADDER)
-            getLogger().info("ItemsAdder detected: custom blocks are excluded from the off-hand interaction.");
+        HAS_NEXO = NexoHook.init(getServer().getPluginManager());
+        if (HAS_NEXO)
+            getLogger().info("Nexo detected: Nexo blocks held in the main hand will not trigger the off-hand swing.");
 
         new DualWielding();
 

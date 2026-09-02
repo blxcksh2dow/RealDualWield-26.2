@@ -9,6 +9,7 @@ website: https://github.com/blxcksh2dow/RealDualWield-26.2
 # animation packet, like on Minecraft 26.x) the plugin falls back to the Paper swing API.
 softdepend:
   - ProtocolLib
+  - Nexo
 commands:
   rdwreload:
     description: Reloads the RealDualWield configuration.
