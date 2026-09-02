@@ -176,11 +176,28 @@ public class DualWielding implements Listener, CommandExecutor
         command.setExecutor(this);
     }
 
+    /** Bumped whenever the default value of an existing option changes. */
+    private static final int CONFIG_VERSION = 2;
+
     void loadConfiguration()
     {
-        Main.inst.getConfig().options().copyDefaults(true);
+        FileConfiguration file = Main.inst.getConfig();
+        int version = file.getInt("config-version", 1);
+
+        if (version < 2)
+        {
+            // 1.5.0 capped the off-hand cooldown at 40 ticks (2s), which truncated every MMOItems
+            // weapon slower than that (a 5s greatsword recharged in 2s).
+            if (file.getInt("mmoitems.max-cooldown", 40) <= 40)
+                file.set("mmoitems.max-cooldown", 200);
+
+            file.set("config-version", CONFIG_VERSION);
+            Main.inst.getLogger().info("[RealDualWield] configuration updated to version " + CONFIG_VERSION + ".");
+        }
+
+        file.options().copyDefaults(true);
         Main.inst.saveConfig();
-        Main.inst.getConfig().options().copyDefaults(false);
+        file.options().copyDefaults(false);
     }
 
     void initConfig()
@@ -773,11 +790,12 @@ public class DualWielding implements Listener, CommandExecutor
             return;
 
         final int total = Math.max(1, ticks);
+        final boolean bar = config.getBoolean("show-cooldown-bar");
 
         new BukkitRunnable()
         {
             int count = 0;
-            int animIndex = 0;
+            int lastIndex = -1;
 
             public void run()
             {
@@ -786,25 +804,30 @@ public class DualWielding implements Listener, CommandExecutor
                 if (total - count > 0)
                     wielder.setDelay(total - count);
 
-                if (count <= COOLDOWN_STEPS)
+                if (bar && count <= total)
                 {
-                    if (config.getBoolean("show-cooldown-bar"))
+                    // The bar is spread over the WHOLE cooldown, whatever its length: on a 5
+                    // seconds weapon it fills in 5 seconds instead of freezing after 8 ticks.
+                    int index = Math.min(COOLDOWN_STEPS - 1, (int) Math.floor((count - 1) * (double) COOLDOWN_STEPS / total));
+
+                    // The title is sent again only when the bar actually changes: its stay time
+                    // (500 ticks) already keeps it on screen in the meantime.
+                    if (index != lastIndex)
                     {
-                        showCooldownBar(wielder.getPlayer(), animIndex);
-                        animIndex++;
+                        lastIndex = index;
+                        showCooldownBar(wielder.getPlayer(), index);
                     }
                 }
-                else if (count > total)
+
+                if (count > total)
                 {
-                    if (config.getBoolean("show-cooldown-bar"))
+                    if (bar)
                         clearCooldownBar(wielder.getPlayer());
 
                     wielder.setUsingLeftWeapon(false);
                     wielder.setDelay(null);
                     this.cancel();
                 }
-                // Between the 9th and the 12th tick nothing is sent: the last bar stays on screen
-                // because it was shown with a stay time of 500 ticks.
             }
             // The titles are player API calls: they must run on the main thread.
         }.runTaskTimer(Main.inst, 0, 1);

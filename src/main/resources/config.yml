@@ -2,6 +2,10 @@
 #
 # Reload it with /rdwreload
 
+# Internal: do not touch. It is only used to update the defaults of an existing configuration
+# when the plugin changes them.
+config-version: 2
+
 # Shows the cooldown bar (title) while the off-hand weapon is recharging.
 show-cooldown-bar: true
 
@@ -77,10 +81,13 @@ mmoitems:
   not-enough-stamina-message: '&cNot enough stamina!'
 
   # Uses the MMOItems attack speed of the off-hand weapon as cooldown instead of 12 ticks
-  # (20 / attacks-per-second, clamped between min-cooldown and max-cooldown).
+  # (20 / attacks-per-second, i.e. exactly the recharge time of the weapon in the main hand,
+  # clamped between min-cooldown and max-cooldown).
+  # max-cooldown is 200 ticks = 10 seconds: keep it high or slow weapons (a greatsword with
+  # 0.2 attacks/sec needs 100 ticks = 5s) would be cut short.
   use-attack-speed: true
   min-cooldown: 4
-  max-cooldown: 40
+  max-cooldown: 200
 
   # While that cooldown runs the off-hand attack is skipped altogether (instead of only being
   # scaled down), so the weapon really attacks at the speed MMOItems gives it.
