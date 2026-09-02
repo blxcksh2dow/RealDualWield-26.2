@@ -137,6 +137,37 @@ pipeline parte regolarmente **ma vede l'arma della mano principale**: se anche q
 `MANA_COST`, MythicLib/MMOItems potrebbe scalarlo una seconda volta. Se noti consumi doppi
 metti `mmoitems.apply-weapon-costs: false` e lascia fare tutto a MMOItems.
 
+### `/rdwdebug`
+
+Non avendo a disposizione i jar di MMOItems/MMOCore (sono plugin premium), l'integrazione è
+**solo via reflection e con più nomi candidati per ogni metodo** (`NBTItem.get` *oppure* il wrapper
+di MythicLib, `getStat` *oppure* `getDouble`, `isEncumbered` *oppure* `areHandsFull`,
+`giveMana(double)` *oppure* `giveMana(double, UpdateReason)`...). Se uno non viene trovato si
+passa al successivo e solo quella feature resta muta.
+
+Per sapere **esattamente** cosa è stato risolto sul tuo server:
+
+```
+/rdwdebug
+```
+
+stampa (e scrive in console) un report tipo:
+
+```
+[RealDualWield] version 1.6.0 on Minecraft 26.2
+[RealDualWield] off-hand animation: ProtocolLib packet (record constructor: entityId + action)
+[RealDualWield] ProtocolLib: found
+[RealDualWield] Nexo: hooked
+[RealDualWield] MMOItems: v6.10.1
+[RealDualWield] MMOCore: v1.13.1
+[RealDualWield]   [OK]      NBTItem.get(ItemStack)  (io.lumine.mythic.lib.api.item.NBTItem)
+[RealDualWield]   [MISSING] NBTItem#getStat(String)  (io.lumine.mythic.lib.api.item.NBTItem)
+[RealDualWield]   ...
+[RealDualWield] features: two handed = true, mana/stamina = false, attack speed = false, ...
+```
+
+Incollami quelle righe e adatto `MMOHook` ai nomi reali della tua build.
+
 ### Debug
 
 Se l'attacco con la seconda mano non fa danno, metti `debug: true` in `config.yml` e fai

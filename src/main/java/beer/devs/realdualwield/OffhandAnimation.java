@@ -80,6 +80,13 @@ public final class OffhandAnimation
         return mode;
     }
 
+    /** Description of the strategy currently in use (shown by {@code /rdwdebug}). */
+    public static String describe()
+    {
+        Sender resolved = sender;
+        return resolved != null ? resolved.describe() : "not resolved yet (mode " + mode + ")";
+    }
+
     /**
      * Plays the off-hand swing animation for the given player.
      *

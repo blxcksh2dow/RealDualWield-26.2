@@ -210,9 +210,50 @@ public class DualWielding implements Listener, CommandExecutor
         return wielders.computeIfAbsent(player, Wielder::new);
     }
 
+    /**
+     * What the plugin managed to hook into: printed by {@code /rdwdebug} and (when {@code debug}
+     * is on) at startup. It is the fastest way to see why a feature is silent on a given server.
+     */
+    private static List<String> integrationReport()
+    {
+        List<String> lines = new ArrayList<>();
+        lines.add("version " + (Main.inst == null ? "?" : Main.inst.getPluginMeta().getVersion())
+                + " on Minecraft " + Bukkit.getServer().getMinecraftVersion());
+        lines.add("off-hand animation: " + OffhandAnimation.describe());
+        lines.add("ProtocolLib: " + (OffhandAnimation.isProtocolLibEnabled() ? "found" : "not found"));
+        lines.add("Nexo: " + (Main.HAS_NEXO ? "hooked" : "not found"));
+        lines.addAll(MMOHook.describe());
+        return lines;
+    }
+
+    /** Logs the integration report (used at startup when debug is enabled). */
+    static void logIntegrationReport()
+    {
+        if (Main.inst == null)
+            return;
+
+        Main.inst.getLogger().info("[RealDualWield] integration report:");
+        for (String line : integrationReport())
+            Main.inst.getLogger().info("[RealDualWield] " + line);
+    }
+
     @Override
     public boolean onCommand(@NotNull CommandSender sender, Command cmd, @NotNull String label, String[] args)
     {
+        if (cmd.getName().equalsIgnoreCase("rdwdebug"))
+        {
+            if (!sender.hasPermission("rdw.reload"))
+            {
+                sendMessage(sender, "[RealDualWield] You do not have permission to do that.", NamedTextColor.RED, SECTION + "c");
+                return true;
+            }
+
+            for (String line : integrationReport())
+                sendMessage(sender, "[RealDualWield] " + line, NamedTextColor.GRAY, SECTION + "7");
+
+            return true;
+        }
+
         if (cmd.getName().equalsIgnoreCase("rdwreload"))
         {
             if (sender.hasPermission("rdw.reload"))

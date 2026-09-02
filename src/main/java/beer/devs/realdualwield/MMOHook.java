@@ -1,44 +1,43 @@
 package beer.devs.realdualwield;
 
 import org.bukkit.Material;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.PluginManager;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 
 /**
- * Optional support for <b>MMOItems</b> (items/stats) and <b>MMOCore</b> (mana &amp; stamina).
+ * Optional support for <b>MMOItems</b> (items, stats, two handed weapons) and <b>MMOCore</b>
+ * (mana &amp; stamina).
  *
  * <p>Everything is resolved by reflection, so:
  * <ul>
  *     <li>the plugin builds without access to the (premium) MMOItems/MMOCore jars;</li>
  *     <li>nothing breaks when MMOItems/MMOCore are not installed or when their API changes;</li>
- *     <li>every call is wrapped in try/catch: a missing method only disables the feature it
- *     belongs to, and the reason is printed in the console when {@code debug} is on.</li>
+ *     <li>every lookup has more than one candidate name, so a renamed method only disables the
+ *     feature it belongs to.</li>
  * </ul>
  *
- * <p>API used (matches the one MMOItems itself uses internally):
- * <ul>
- *     <li>{@code io.lumine.mythic.lib.api.item.NBTItem.get(ItemStack)} then
- *         {@code NBTItem#getStat(String)}, {@code #getBoolean(String)}, {@code #hasType()},
- *         {@code #getType()}, {@code #getItem()}</li>
- *     <li>{@code net.Indyuce.mmoitems.ItemStats.TWO_HANDED} / {@code HANDWORN} and
- *         {@code ItemStat#getNBTPath()}</li>
- *     <li>{@code net.Indyuce.mmoitems.api.player.PlayerData#get(OfflinePlayer)} and
- *         {@code #isEncumbered()} - the very same check MMOItems runs before letting a player
- *         use a weapon ("hands too charged")</li>
- *     <li>{@code net.Indyuce.mmoitems.api.Type.get(ItemStack)} and {@code Type#isWeapon()}</li>
- *     <li>{@code net.Indyuce.mmocore.api.player.PlayerData#get(OfflinePlayer)},
- *         {@code #getMana()}, {@code #giveMana(double)}, {@code #getStamina()},
- *         {@code #giveStamina(double)}</li>
- * </ul>
+ * <p>{@code /rdwdebug} prints {@link #describe()}: which plugin was found and which methods
+ * resolved, so a broken integration can be fixed without guessing.
  */
 public final class MMOHook
 {
-    private static final String NBT_ITEM = "io.lumine.mythic.lib.api.item.NBTItem";
+    // Candidate class names: the NBTItem class lives in MythicLib since MMOItems 6.7, but it used
+    // to be inside MMOItems itself.
+    private static final String[] NBT_ITEM_CLASSES = {
+            "io.lumine.mythic.lib.api.item.NBTItem",
+            "net.Indyuce.mmoitems.api.item.NBTItem"
+    };
     private static final String MI_TYPE = "net.Indyuce.mmoitems.api.Type";
     private static final String MI_PLAYER_DATA = "net.Indyuce.mmoitems.api.player.PlayerData";
     private static final String MI_ITEM_STATS = "net.Indyuce.mmoitems.ItemStats";
@@ -46,28 +45,39 @@ public final class MMOHook
 
     private static boolean hasMMOItems;
     private static boolean hasMMOCore;
+    private static final List<String> REPORT = new ArrayList<>();
 
     // NBTItem
-    private static Method nbtGet;
-    private static Method nbtGetStat;
+    private static Method nbtGet;         // static NBTItem.get(ItemStack)
+    private static Method nbtWrap;        // VersionWrapper#getNBTItem(ItemStack) (MythicLib)
+    private static Object versionWrapper;
+    private static Method nbtGetStat;     // NBTItem#getStat(String)
+    private static Method nbtGetDouble;   // older name of the same thing
     private static Method nbtGetBoolean;
     private static Method nbtHasType;
+    private static Method nbtGetType;     // NBTItem#getType() -> String id
     private static Method nbtGetItem;
 
     // MMOItems
-    private static Method miTypeGet;
+    private static Method miTypeGetItem;  // Type.get(ItemStack)
+    private static Method miTypeGetId;    // Type.get(String)
     private static Method miTypeIsWeapon;
-    private static Method miPlayerDataGet;
+    private static Method miPlayerDataGetPlayer;
+    private static Method miPlayerDataGetUuid;
     private static Method miIsEncumbered;
     private static String twoHandedPath;
     private static String handwornPath;
 
     // MMOCore
-    private static Method mcPlayerDataGet;
+    private static Method mcGetPlayer;
+    private static Method mcGetUuid;
     private static Method mcGetMana;
     private static Method mcGiveMana;
+    private static Method mcGiveManaReason;
+    private static Object mcReasonOther;
     private static Method mcGetStamina;
     private static Method mcGiveStamina;
+    private static Method mcGiveStaminaReason;
 
     private MMOHook()
     {
@@ -83,90 +93,213 @@ public final class MMOHook
         return hasMMOCore;
     }
 
+    // ------------------------------------------------------------------ init
+
     public static boolean init(PluginManager pluginManager)
+    {
+        reset();
+
+        Plugin mmoItems = pluginManager.getPlugin("MMOItems");
+        Plugin mmoCore = pluginManager.getPlugin("MMOCore");
+
+        REPORT.add("MMOItems: " + (mmoItems == null ? "not installed" : "v" + mmoItems.getPluginMeta().getVersion()));
+        REPORT.add("MMOCore: " + (mmoCore == null ? "not installed" : "v" + mmoCore.getPluginMeta().getVersion()));
+
+        if (mmoItems != null)
+            initMMOItems();
+        if (mmoCore != null)
+            initMMOCore();
+
+        return hasMMOItems || hasMMOCore;
+    }
+
+    private static void initMMOItems()
+    {
+        Class<?> nbtItem = null;
+        for (String name : NBT_ITEM_CLASSES)
+        {
+            nbtItem = findClass(name);
+            if (nbtItem != null)
+            {
+                report("NBTItem class", name, true);
+                break;
+            }
+        }
+        if (nbtItem == null)
+        {
+            report("NBTItem class", NBT_ITEM_CLASSES[0] + " / " + NBT_ITEM_CLASSES[1], false);
+            return;
+        }
+
+        nbtGet = findMethod(nbtItem, "get", ItemStack.class);
+        report("NBTItem.get(ItemStack)", nbtItem.getName(), nbtGet != null);
+
+        nbtGetStat = findMethod(nbtItem, "getStat", String.class);
+        nbtGetDouble = findMethod(nbtItem, "getDouble", String.class);
+        report("NBTItem#getStat(String)", nbtItem.getName(), nbtGetStat != null || nbtGetDouble != null);
+
+        nbtGetBoolean = findMethod(nbtItem, "getBoolean", String.class);
+        report("NBTItem#getBoolean(String)", nbtItem.getName(), nbtGetBoolean != null);
+
+        nbtHasType = findMethod(nbtItem, "hasType");
+        report("NBTItem#hasType()", nbtItem.getName(), nbtHasType != null);
+
+        nbtGetType = findMethod(nbtItem, "getType");
+        report("NBTItem#getType()", nbtItem.getName(), nbtGetType != null);
+
+        nbtGetItem = findMethod(nbtItem, "getItem");
+
+        // MythicLib fallback to obtain an NBTItem: MythicLib.plugin.getVersion().getWrapper().getNBTItem(stack)
+        try
+        {
+            Class<?> mythicLib = findClass("io.lumine.mythic.lib.MythicLib");
+            if (mythicLib != null)
+            {
+                Object plugin = mythicLib.getField("plugin").get(null);
+                Object version = plugin.getClass().getMethod("getVersion").invoke(plugin);
+                versionWrapper = version.getClass().getMethod("getWrapper").invoke(version);
+                nbtWrap = findMethod(versionWrapper.getClass(), "getNBTItem", ItemStack.class);
+            }
+        }
+        catch (Throwable ignored)
+        {
+        }
+        report("MythicLib wrapper fallback", "getNBTItem(ItemStack)", nbtWrap != null);
+
+        Class<?> type = findClass(MI_TYPE);
+        if (type != null)
+        {
+            miTypeGetItem = findMethod(type, "get", ItemStack.class);
+            miTypeGetId = findMethod(type, "get", String.class);
+            miTypeIsWeapon = findMethod(type, "isWeapon");
+            report("Type.get(ItemStack)", MI_TYPE, miTypeGetItem != null);
+            report("Type#isWeapon()", MI_TYPE, miTypeIsWeapon != null);
+        }
+        else
+        {
+            report("Type", MI_TYPE, false);
+        }
+
+        Class<?> playerData = findClass(MI_PLAYER_DATA);
+        if (playerData != null)
+        {
+            miPlayerDataGetPlayer = findMethod(playerData, "get", org.bukkit.OfflinePlayer.class);
+            miPlayerDataGetUuid = findMethod(playerData, "get", java.util.UUID.class);
+            miIsEncumbered = findMethod(playerData, "isEncumbered");
+            if (miIsEncumbered == null)
+                miIsEncumbered = findMethod(playerData, "areHandsFull");
+            report("PlayerData#get(OfflinePlayer)", MI_PLAYER_DATA, miPlayerDataGetPlayer != null);
+            report("PlayerData#isEncumbered()", MI_PLAYER_DATA, miIsEncumbered != null);
+        }
+        else
+        {
+            report("PlayerData", MI_PLAYER_DATA, false);
+        }
+
+        twoHandedPath = nbtPath("TWO_HANDED");
+        handwornPath = nbtPath("HANDWORN");
+        report("ItemStats.TWO_HANDED path", String.valueOf(twoHandedPath), twoHandedPath != null);
+        report("ItemStats.HANDWORN path", String.valueOf(handwornPath), handwornPath != null);
+
+        hasMMOItems = true;
+    }
+
+    private static void initMMOCore()
+    {
+        Class<?> playerData = findClass(MC_PLAYER_DATA);
+        if (playerData == null)
+        {
+            report("MMOCore PlayerData", MC_PLAYER_DATA, false);
+            return;
+        }
+
+        mcGetPlayer = findMethod(playerData, "get", org.bukkit.OfflinePlayer.class);
+        mcGetUuid = findMethod(playerData, "get", java.util.UUID.class);
+        mcGetMana = findMethod(playerData, "getMana");
+        mcGetStamina = findMethod(playerData, "getStamina");
+        mcGiveMana = findMethod(playerData, "giveMana", double.class);
+        mcGiveStamina = findMethod(playerData, "giveStamina", double.class);
+
+        // Newer builds deprecated giveMana(double) in favour of giveMana(double, UpdateReason).
+        if (mcGiveMana == null || mcGiveStamina == null)
+        {
+            Class<?> reason = findClass("net.Indyuce.mmocore.api.event.PlayerResourceUpdateEvent$UpdateReason");
+            if (reason != null && reason.isEnum())
+            {
+                for (Object constant : reason.getEnumConstants())
+                    if (String.valueOf(constant).equals("OTHER"))
+                        mcReasonOther = constant;
+
+                mcGiveManaReason = findMethod(playerData, "giveMana", double.class, reason);
+                mcGiveStaminaReason = findMethod(playerData, "giveStamina", double.class, reason);
+            }
+        }
+
+        report("PlayerData#getMana()", MC_PLAYER_DATA, mcGetMana != null);
+        report("PlayerData#getStamina()", MC_PLAYER_DATA, mcGetStamina != null);
+        report("PlayerData#giveMana(-x)", MC_PLAYER_DATA, mcGiveMana != null || mcGiveManaReason != null);
+        report("PlayerData#giveStamina(-x)", MC_PLAYER_DATA, mcGiveStamina != null || mcGiveStaminaReason != null);
+
+        hasMMOCore = (mcGetMana != null && (mcGiveMana != null || mcGiveManaReason != null))
+                || (mcGetStamina != null && (mcGiveStamina != null || mcGiveStaminaReason != null));
+    }
+
+    private static void reset()
     {
         hasMMOItems = false;
         hasMMOCore = false;
-        nbtGet = nbtGetStat = nbtGetBoolean = nbtHasType = nbtGetItem = null;
-        miTypeGet = miTypeIsWeapon = miPlayerDataGet = miIsEncumbered = null;
+        REPORT.clear();
+
+        nbtGet = nbtWrap = nbtGetStat = nbtGetDouble = nbtGetBoolean = nbtHasType = nbtGetType = nbtGetItem = null;
+        versionWrapper = null;
+        miTypeGetItem = miTypeGetId = miTypeIsWeapon = miPlayerDataGetPlayer = miPlayerDataGetUuid = miIsEncumbered = null;
         twoHandedPath = handwornPath = null;
-        mcPlayerDataGet = mcGetMana = mcGiveMana = mcGetStamina = mcGiveStamina = null;
+        mcGetPlayer = mcGetUuid = mcGetMana = mcGiveMana = mcGiveManaReason = mcGetStamina = mcGiveStamina = mcGiveStaminaReason = null;
+        mcReasonOther = null;
+    }
 
-        boolean mmoItems = pluginManager.getPlugin("MMOItems") != null;
-        boolean mmoCore = pluginManager.getPlugin("MMOCore") != null;
+    /** Multi line report of what has been resolved: printed by {@code /rdwdebug}. */
+    public static List<String> describe()
+    {
+        List<String> lines = new ArrayList<>(REPORT);
+        lines.add("features: two handed = " + (hasMMOItems && twoHandedPath != null)
+                + ", mana/stamina = " + (hasMMOItems && hasMMOCore && nbtGetStat != null)
+                + ", attack speed = " + (hasMMOItems && (nbtGetStat != null || nbtGetDouble != null))
+                + ", all MMOItems weapons = " + (hasMMOItems && miTypeIsWeapon != null));
+        return lines;
+    }
 
-        if (mmoItems)
+    // ------------------------------------------------------------- reflection
+
+    private static Class<?> findClass(String name)
+    {
+        try
         {
-            try
-            {
-                Class<?> nbtItem = Class.forName(NBT_ITEM);
-                nbtGet = nbtItem.getMethod("get", ItemStack.class);
-                nbtGetStat = nbtItem.getMethod("getStat", String.class);
-                nbtGetBoolean = nbtItem.getMethod("getBoolean", String.class);
-                nbtHasType = nbtItem.getMethod("hasType");
-                try
-                {
-                    nbtGetItem = nbtItem.getMethod("getItem");
-                }
-                catch (Throwable ignored)
-                {
-                }
-
-                Class<?> type = Class.forName(MI_TYPE);
-                miTypeGet = type.getMethod("get", ItemStack.class);
-                miTypeIsWeapon = type.getMethod("isWeapon");
-
-                Class<?> playerData = Class.forName(MI_PLAYER_DATA);
-                miPlayerDataGet = playerData.getMethod("get", org.bukkit.OfflinePlayer.class);
-                try
-                {
-                    miIsEncumbered = playerData.getMethod("isEncumbered");
-                }
-                catch (Throwable ignored)
-                {
-                    // Older builds expose it as areHandsFull()
-                    try
-                    {
-                        miIsEncumbered = playerData.getMethod("areHandsFull");
-                    }
-                    catch (Throwable ignored2)
-                    {
-                    }
-                }
-
-                twoHandedPath = nbtPath("TWO_HANDED");
-                handwornPath = nbtPath("HANDWORN");
-
-                if (nbtGetStat == null)
-                    Debug.log("NBTItem#getStat(String) is missing: mana/stamina costs and attack speed are disabled.");
-
-                hasMMOItems = true;
-            }
-            catch (Throwable t)
-            {
-                Debug.log("MMOItems found but its API could not be resolved: " + t);
-            }
+            return Class.forName(name);
         }
-
-        if (mmoCore && mmoItems)
+        catch (Throwable t)
         {
-            try
-            {
-                Class<?> playerData = Class.forName(MC_PLAYER_DATA);
-                mcPlayerDataGet = playerData.getMethod("get", org.bukkit.OfflinePlayer.class);
-                mcGetMana = playerData.getMethod("getMana");
-                mcGetStamina = playerData.getMethod("getStamina");
-                mcGiveMana = playerData.getMethod("giveMana", double.class);
-                mcGiveStamina = playerData.getMethod("giveStamina", double.class);
-                hasMMOCore = true;
-            }
-            catch (Throwable t)
-            {
-                Debug.log("MMOCore found but its API could not be resolved: " + t);
-            }
+            return null;
         }
+    }
 
-        return hasMMOItems || hasMMOCore;
+    private static Method findMethod(Class<?> owner, String name, Class<?>... params)
+    {
+        try
+        {
+            Method method = owner.getMethod(name, params);
+            method.setAccessible(true);
+            return method;
+        }
+        catch (Throwable t)
+        {
+            return null;
+        }
+    }
+
+    private static void report(String what, String where, boolean ok)
+    {
+        REPORT.add((ok ? "  [OK]      " : "  [MISSING] ") + what + "  (" + where + ")");
     }
 
     private static String nbtPath(String statName)
@@ -176,32 +309,52 @@ public final class MMOHook
             Class<?> itemStats = Class.forName(MI_ITEM_STATS);
             Field field = itemStats.getField(statName);
             Object stat = field.get(null);
-            Method path = stat.getClass().getMethod("getNBTPath");
-            Object value = path.invoke(stat);
+            Method path = findMethod(stat.getClass(), "getNBTPath");
+            if (path == null)
+                path = findMethod(stat.getClass(), "getId");
+            Object value = path == null ? null : path.invoke(stat);
             return value instanceof String s ? s : statName;
         }
         catch (Throwable t)
         {
+            // Not fatal: the raw stat id is the NBT path on every MMOItems build we know of.
             return statName;
         }
     }
 
     // ------------------------------------------------------------------ NBT
 
-    /** The MMOItems/MythicLib NBT view of an item, or null when it is not available. */
+    /** The MMOItems/MythicLib NBT view of an item, or null when it cannot be built. */
     private static Object nbt(ItemStack item)
     {
-        if (!hasMMOItems || nbtGet == null || item == null || item.getType() == Material.AIR)
+        if (!hasMMOItems || item == null || item.getType() == Material.AIR)
             return null;
 
-        try
+        if (nbtGet != null)
         {
-            return nbtGet.invoke(null, item);
+            try
+            {
+                Object result = nbtGet.invoke(null, item);
+                if (result != null)
+                    return result;
+            }
+            catch (Throwable ignored)
+            {
+            }
         }
-        catch (Throwable t)
+
+        if (nbtWrap != null && versionWrapper != null)
         {
-            return null;
+            try
+            {
+                return nbtWrap.invoke(versionWrapper, item);
+            }
+            catch (Throwable ignored)
+            {
+            }
         }
+
+        return null;
     }
 
     /** True when the item was made by MMOItems. */
@@ -225,12 +378,27 @@ public final class MMOHook
     /** True when MMOItems considers the item a weapon of any type (sword, dagger, staff...). */
     public static boolean isWeapon(ItemStack item)
     {
-        if (!hasMMOItems || miTypeGet == null || item == null)
+        if (!hasMMOItems || miTypeIsWeapon == null || item == null)
             return false;
 
         try
         {
-            Object type = miTypeGet.invoke(null, item);
+            Object type = null;
+
+            if (miTypeGetItem != null)
+                type = miTypeGetItem.invoke(null, item);
+
+            if (type == null && nbtGetType != null && miTypeGetId != null)
+            {
+                Object nbtItem = nbt(item);
+                if (nbtItem != null)
+                {
+                    Object id = nbtGetType.invoke(nbtItem);
+                    if (id instanceof String s)
+                        type = miTypeGetId.invoke(null, s);
+                }
+            }
+
             if (type == null)
                 return false;
 
@@ -247,12 +415,16 @@ public final class MMOHook
     public static double stat(ItemStack item, String id)
     {
         Object nbtItem = nbt(item);
-        if (nbtItem == null || nbtGetStat == null)
+        if (nbtItem == null)
+            return 0;
+
+        Method reader = nbtGetStat != null ? nbtGetStat : nbtGetDouble;
+        if (reader == null)
             return 0;
 
         try
         {
-            Object result = nbtGetStat.invoke(nbtItem, id);
+            Object result = reader.invoke(nbtItem, id);
             return result instanceof Number n ? n.doubleValue() : 0;
         }
         catch (Throwable t)
@@ -314,12 +486,14 @@ public final class MMOHook
         if (meta == null || meta.getAttributeModifiers() == null)
             return 0;
 
-        var modifiers = meta.getAttributeModifiers().get(org.bukkit.attribute.Attribute.ATTACK_SPEED);
+        Collection<AttributeModifier> modifiers = meta.getAttributeModifiers().get(Attribute.ATTACK_SPEED);
         if (modifiers == null)
             return 0;
 
-        double total = 4; // vanilla base attack speed
-        for (org.bukkit.attribute.AttributeModifier modifier : modifiers)
+        // MMOItems stores the apparent value as an offset from the vanilla base (4):
+        // apparent = base + modifier.
+        double total = 4;
+        for (AttributeModifier modifier : modifiers)
             total += modifier.getAmount();
 
         return total > 0 ? total : 0;
@@ -328,12 +502,12 @@ public final class MMOHook
     // -------------------------------------------------------- two handed (encumbered)
 
     /**
-     * True when the player holds a two-handed item in one hand and something else in the other
+     * True when the player holds a two handed item in one hand and something else in the other
      * (the MMOItems "hands too charged" state).
      *
      * <p>MMOItems' own {@code PlayerData#isEncumbered()} is used when available; the fallback
-     * reproduces exactly the same calculation reading the TWO_HANDED/HANDWORN NBT tags, so that
-     * the behaviour is identical even if that method changes name.
+     * reproduces exactly the same calculation reading the TWO_HANDED/HANDWORN NBT tags, so the
+     * behaviour is identical even when that method changes name or disappears.
      */
     public static boolean isEncumbered(Player player)
     {
@@ -348,14 +522,19 @@ public final class MMOHook
         if (isEmpty(mainHand) || isEmpty(offHand))
             return false;
 
-        if (miPlayerDataGet != null && miIsEncumbered != null)
+        if (miPlayerDataGetPlayer != null && miIsEncumbered != null)
         {
             try
             {
-                Object data = miPlayerDataGet.invoke(null, player);
-                Object result = miIsEncumbered.invoke(data);
-                if (result instanceof Boolean b)
-                    return b;
+                Object data = miPlayerDataGetPlayer.invoke(null, player);
+                if (data == null && miPlayerDataGetUuid != null)
+                    data = miPlayerDataGetUuid.invoke(null, player.getUniqueId());
+                if (data != null)
+                {
+                    Object result = miIsEncumbered.invoke(data);
+                    if (result instanceof Boolean b)
+                        return b;
+                }
             }
             catch (Throwable t)
             {
@@ -380,17 +559,26 @@ public final class MMOHook
 
     private static Object mmoCoreData(Player player)
     {
-        if (!hasMMOCore || mcPlayerDataGet == null || player == null)
+        if (!hasMMOCore || player == null)
             return null;
 
         try
         {
-            return mcPlayerDataGet.invoke(null, player);
+            if (mcGetPlayer != null)
+            {
+                Object data = mcGetPlayer.invoke(null, player);
+                if (data != null)
+                    return data;
+            }
+            if (mcGetUuid != null)
+                return mcGetUuid.invoke(null, player.getUniqueId());
         }
         catch (Throwable t)
         {
-            return null;
+            Debug.log("MMOCore PlayerData.get() failed: " + t);
         }
+
+        return null;
     }
 
     public static double getMana(Player player)
@@ -398,7 +586,7 @@ public final class MMOHook
         try
         {
             Object data = mmoCoreData(player);
-            if (data == null)
+            if (data == null || mcGetMana == null)
                 return -1;
 
             Object result = mcGetMana.invoke(data);
@@ -415,7 +603,7 @@ public final class MMOHook
         try
         {
             Object data = mmoCoreData(player);
-            if (data == null)
+            if (data == null || mcGetStamina == null)
                 return -1;
 
             Object result = mcGetStamina.invoke(data);
@@ -432,8 +620,13 @@ public final class MMOHook
         try
         {
             Object data = mmoCoreData(player);
-            if (data != null)
+            if (data == null)
+                return;
+
+            if (mcGiveMana != null)
                 mcGiveMana.invoke(data, amount);
+            else if (mcGiveManaReason != null)
+                mcGiveManaReason.invoke(data, amount, mcReasonOther);
         }
         catch (Throwable t)
         {
@@ -446,8 +639,13 @@ public final class MMOHook
         try
         {
             Object data = mmoCoreData(player);
-            if (data != null)
+            if (data == null)
+                return;
+
+            if (mcGiveStamina != null)
                 mcGiveStamina.invoke(data, amount);
+            else if (mcGiveStaminaReason != null)
+                mcGiveStaminaReason.invoke(data, amount, mcReasonOther);
         }
         catch (Throwable t)
         {

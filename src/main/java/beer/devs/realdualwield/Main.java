@@ -29,6 +29,9 @@ public class Main extends JavaPlugin
 
         new DualWielding();
 
+        if (Debug.isEnabled())
+            DualWielding.logIntegrationReport();
+
         try
         {
             getLogger().info("RealDualWield v" + getPluginMeta().getVersion() + " enabled on Minecraft " +

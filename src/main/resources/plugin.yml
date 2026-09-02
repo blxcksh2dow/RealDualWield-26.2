@@ -20,6 +20,10 @@ commands:
     description: Reloads the RealDualWield configuration.
     usage: /<command>
     permission: rdw.reload
+  rdwdebug:
+    description: Shows what RealDualWield detected about ProtocolLib, Nexo, MMOItems and MMOCore.
+    usage: /<command>
+    permission: rdw.reload
 permissions:
   rdw.use:
     description: Allows the player to attack with the off-hand weapon.
