@@ -58,29 +58,33 @@ nexo-check: block
 #   none  - never touch the item (the animation is always the vanilla default of 6 ticks)
 offhand-swing-animation: auto
 
-# Recharge animation of the off-hand weapon, i.e. "the weapon goes down and comes back up while
-# the attack recharges", the animation whose length follows the attack speed of the weapon.
+# Feedback while the off-hand weapon recharges ("the weapon goes down and comes back up", the
+# animation whose length follows the attack speed of the weapon).
 #
 # In vanilla only the MAIN hand does it: the client keeps the off-hand item raised by design, so
-# there is no packet or API asking for an off-hand recharge. This plugin works around it:
+# there is no packet and no API asking for an off-hand recharge. Everything here is built on the
+# only lever the client leaves us: when the item in the inventory differs (by content) from the one
+# it is drawing, it lowers the weapon to "swap" it and raises it again (~3 ticks down, ~3 up).
 #
-#   dip      - (default) while the weapon recharges the client is shown a copy of the off-hand item
-#              that differs by one invisible component, so the client believes the weapon is being
-#              swapped over and over and holds it DOWN; when the recharge is over the real item is
-#              sent back and the client raises the weapon again (~3 ticks), exactly like the main
-#              hand (which stays low for most of the recharge and rises at the end).
-#              Nothing of the real item is touched: the copies only live inside the packets.
-#   cooldown - vanilla item cooldown: the off-hand weapon shows the white recharge bar of Minecraft
-#              for exactly the recharge time of the weapon (it writes the minecraft:use_cooldown
-#              component on the item, with a cooldown group of its own).
+#   cooldown - (default) vanilla item cooldown: the off-hand weapon shows the white recharge bar of
+#              Minecraft for EXACTLY the recharge time of the weapon, without a single glitch and
+#              with one packet per hit (it writes minecraft:use_cooldown on the item, with a
+#              cooldown group of its own). It is the HUD bar, not the weapon moving in 3D.
+#   dip      - the weapon physically dips on every off-hand hit: one packet per hit, ~3 ticks down
+#              and ~3 ticks up, decided entirely client side, so it can never glitch. The length is
+#              always the same (~6 ticks): it does NOT follow the attack speed.
+#   hold     - EXPERIMENTAL: keeps the weapon down for the whole recharge by sending a different
+#              copy every tick. It needs a packet to land inside every single client tick, and when
+#              one is late the client raises the weapon by 0.4 and the next one slams it down again
+#              (the "up and down" glitch, very visible with slow weapons). Its profile is not the
+#              vanilla one either: the main hand rises along a cubic curve, this stays flat at the
+#              bottom and pops up in the last 3 ticks. One packet per tick (2-3 KB each).
 #   none     - no recharge feedback at all.
 #
-# Note: with an item model that disables the swap animation in the resource pack
-# (hand_animation_on_swap: false) dip has nothing to animate: use cooldown in that case.
-# dip sends one small packet per tick while the weapon is recharging (2-3 KB each for an MMOItems
-# weapon, 13 of them for a 1.6 atk/s sword): if your server is huge and you prefer to save
-# bandwidth, use cooldown (one packet per hit).
-offhand-recharge: dip
+# With an item model that disables the swap animation in the resource pack
+# (hand_animation_on_swap: false) dip and hold have nothing to animate: use cooldown in that case.
+# None of these touches the real item except cooldown, which only writes the use_cooldown component.
+offhand-recharge: cooldown
 
 # Knockback applied by the off-hand attack. Keep it off: on MMOItems/MMOCore servers the
 # knockback belongs to the combat system of those plugins.

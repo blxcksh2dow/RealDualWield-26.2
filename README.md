@@ -155,20 +155,20 @@ e in entrambi i casi torna su in ~3 tick, qualsiasi sia l'arma.
 
 Il plugin aggira il limite con `offhand-recharge`:
 
-| valore     | effetto                                                                                                                                                                             |
-|------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `dip`      | **(default)** mentre l'arma ricarica il client riceve una copia dell'item di seconda mano che differisce per un solo componente invisibile, così crede che l'arma venga sostituita di continuo e la tiene **abbassata**; a ricarica finita viene rimandato l'item vero e il client la risolleva in ~3 tick. È lo stesso profilo della mano principale vanilla (che sta giù per gran parte della ricarica e risale alla fine). |
-| `cooldown` | la classica barra di ricarica vanilla: l'arma nello slot della seconda mano mostra la barra bianca per esattamente il tempo di ricarica dell'arma (scrive sull'item il componente `minecraft:use_cooldown`, con un gruppo di cooldown suo). |
-| `none`     | nessun feedback di ricarica.                                                                                                                                                      |
+| valore      | effetto                                                                                                                                                                          |
+|-------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `cooldown`  | **(default)** la classica barra di ricarica vanilla: l'arma nello slot della seconda mano mostra la barra bianca per **esattamente** il tempo di ricarica dell'arma (`20 / attack-speed`), senza il minimo glitch e con un solo pacchetto a colpo. Scrive sull'item il componente `minecraft:use_cooldown`, con un gruppo di cooldown suo. È la barra dell'HUD, non l'arma che si muove in 3D. |
+| `dip`       | l'arma **si abbassa davvero** a ogni colpo di seconda mano: ~3 tick giù e ~3 tick su, un pacchetto a colpo, e il movimento lo fa tutto il client da sé, quindi **non può glitchare**. La durata è però sempre la stessa (~6 tick): **non** segue la velocità di attacco. |
+| `hold`      | **sperimentale**: tiene l'arma giù per tutta la ricarica mandando una copia diversa a ogni tick. Ha due difetti noti: (1) serve che un pacchetto arrivi dentro *ogni singolo tick* del client, e quando uno arriva tardi il client la risolleva di 0,4 e quello dopo la ributta giù (l'effetto "su e giù", molto visibile con le armi lente); (2) il profilo non è quello vanilla: la mano principale risale con una curva cubica, questa resta giù piatta e risale negli ultimi 3 tick. Costa un pacchetto a tick. |
+| `none`      | nessun feedback di ricarica.                                                                                                                                                     |
 
-Con `dip` **l'item vero non viene mai modificato**: le copie vivono solo dentro i pacchetti, quindi
-stat MMOItems, texture Nexo/MMOItems, durabilità e custom model data restano intatti. Se un item
-model del resource pack disattiva l'animazione di swap (`hand_animation_on_swap: false`) `dip` non
-ha nulla da animare: in quel caso usa `cooldown`.
+Con `dip` e `hold` **l'item vero non viene mai modificato**: le copie vivono solo dentro i
+pacchetti, quindi stat MMOItems, texture Nexo/MMOItems, durabilità e custom model data restano
+intatti. Se un item model del resource pack disattiva l'animazione di swap
+(`hand_animation_on_swap: false`) `dip` e `hold` non hanno nulla da animare: usa `cooldown`.
 
-Il tempo di abbassamento è lo stesso del cooldown dell'arma (`20 / attack-speed`, cioè il valore
-usato per la barra e per scalare il danno), e scatta anche quando colpisci **l'aria**, perché in
-vanilla anche un colpo a vuoto fa partire la ricarica.
+Lo scatto avviene anche quando colpisci **l'aria**, perché in vanilla anche un colpo a vuoto fa
+partire la ricarica.
 
 ### Colpire subito dopo la mano principale
 

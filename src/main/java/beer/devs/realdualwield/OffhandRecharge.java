@@ -37,21 +37,28 @@ import java.util.logging.Level;
  * {@code itemUsed(OFF_HAND)} (the client used the off-hand item), and both bring it back up in
  * ~3 ticks whatever the weapon is.
  *
- * <p><b>dip</b> (default) uses the first one: while the weapon recharges the plugin keeps showing
- * the client a copy of the off-hand item that differs by one invisible component
- * ({@code minecraft:repair_cost}), so the client believes the weapon is being swapped over and over
- * and holds it down. When the cooldown is over the real item is sent back and the client raises the
- * weapon in ~3 ticks. The result is the vanilla behaviour: the weapon goes down, stays down for
- * most of the recharge (the vanilla main hand does the same, the rise is cubic and therefore
- * concentrated at the end) and comes back up when the off hand can hit again.
+ * <p>Everything here pivots on that swap animation: when the item in the inventory differs (by
+ * content) from the one the client is drawing, the client lowers the weapon to swap it and raises it
+ * again (~3 ticks down, ~3 up). That is the only lever a server has on the off-hand weapon.
  *
- * <p>Nothing of the real item is ever touched: the copies only exist inside the packets, so
- * MMOItems stats, Nexo/MMOItems textures, durability and custom model data are untouched.
+ * <p><b>dip</b> sends ONE packet per hit: the weapon goes down and comes back up in ~6 ticks. It is
+ * completely deterministic (a single change, then the client does the rest by itself), it costs one
+ * packet per hit and it can never glitch.
  *
- * <p><b>cooldown</b> is the plain vanilla alternative: the off-hand weapon gets a
+ * <p><b>hold</b> tries to keep the weapon down for the WHOLE recharge by sending a different copy
+ * every tick. It is <b>experimental</b>: it needs a packet to land inside every single client tick,
+ * and when one is late (or the server hiccups) the client raises the weapon by 0.4 and the next
+ * packet slams it down again, which is the visible "up and down" glitch. On top of that the profile
+ * is not the vanilla one: the main hand rises along a cubic curve (it starts coming up soon and
+ * arrives at the end), while this one stays flat at the bottom and pops up in the last 3 ticks.
+ *
+ * <p><b>cooldown</b> (default) is the plain vanilla alternative: the off-hand weapon gets a
  * {@code minecraft:use_cooldown} component with its own cooldown group and every hit puts that group
  * on cooldown, so the item shows the white recharge bar in the off-hand slot for exactly the
  * recharge time of the weapon.
+ *
+ * <p>Nothing of the real item is ever touched by dip/hold: the copies only exist inside the packets,
+ * so MMOItems stats, Nexo/MMOItems textures, durability and custom model data are untouched.
  */
 public final class OffhandRecharge
 {
@@ -59,8 +66,10 @@ public final class OffhandRecharge
     {
         /** Nothing at all. */
         NONE,
-        /** Lower the off-hand weapon for the whole recharge (client side slot updates). */
+        /** One deterministic dip per hit: ~3 ticks down, ~3 ticks up. */
         DIP,
+        /** Experimental: hold the weapon down for the whole recharge (one packet per tick). */
+        HOLD,
         /** Vanilla item cooldown (white bar) on the off-hand weapon. */
         COOLDOWN
     }
@@ -74,11 +83,13 @@ public final class OffhandRecharge
     /** Below this the effect is not even visible, so it is not worth a single packet. */
     private static final int MIN_TICKS = 4;
 
-    private static volatile Mode mode = Mode.DIP;
+    private static volatile Mode mode = Mode.COOLDOWN;
     private static volatile Strategy strategy;
     private static volatile boolean resolved;
 
     private static final Map<UUID, BukkitTask> RUNNING = new ConcurrentHashMap<>();
+    /** Which of the two copies has to be sent next: they have to alternate to be a "change". */
+    private static final Map<UUID, Boolean> TOGGLE = new ConcurrentHashMap<>();
 
     private OffhandRecharge()
     {
@@ -89,11 +100,11 @@ public final class OffhandRecharge
      */
     public static synchronized void setMode(Mode newMode)
     {
-        mode = newMode == null ? Mode.DIP : newMode;
+        mode = newMode == null ? Mode.COOLDOWN : newMode;
         strategy = null;
         resolved = false;
 
-        if (mode == Mode.NONE)
+        if (mode != Mode.HOLD)
             cancelAll();
     }
 
@@ -105,15 +116,28 @@ public final class OffhandRecharge
     /** Description of what is in use (shown by {@code /rdwdebug}). */
     public static String describe()
     {
-        if (mode == Mode.NONE)
-            return "disabled";
+        switch (mode)
+        {
+            case NONE:
+                return "disabled";
 
-        if (mode == Mode.COOLDOWN)
-            return "vanilla item cooldown on the off-hand weapon";
+            case COOLDOWN:
+                return "vanilla item cooldown on the off-hand weapon";
 
-        Strategy s = strategy;
-        return "the weapon is lowered for the whole recharge ("
-                + (s == null ? "not resolved yet" : s.describe()) + ")";
+            case DIP:
+            {
+                Strategy s = strategy;
+                return "one dip per hit, ~6 ticks ("
+                        + (s == null ? "not resolved yet" : s.describe()) + ")";
+            }
+
+            default:
+            {
+                Strategy s = strategy;
+                return "experimental: the weapon is held down for the whole recharge ("
+                        + (s == null ? "not resolved yet" : s.describe()) + ")";
+            }
+        }
     }
 
     /**
@@ -124,18 +148,25 @@ public final class OffhandRecharge
      */
     public static void start(Player player, int ticks)
     {
-        if (mode == Mode.NONE || player == null || ticks < MIN_TICKS)
+        if (mode == Mode.NONE || player == null)
             return;
 
         cancel(player);
 
-        if (mode == Mode.COOLDOWN)
+        switch (mode)
         {
-            startCooldown(player, ticks);
-            return;
-        }
+            case COOLDOWN:
+                startCooldown(player, ticks);
+                return;
 
-        startDip(player, ticks);
+            case DIP:
+                startDip(player);
+                return;
+
+            default:
+                if (ticks >= MIN_TICKS)
+                    startHold(player, ticks);
+        }
     }
 
     /** Stops the animation of a player and shows its real off-hand item again. */
@@ -168,10 +199,52 @@ public final class OffhandRecharge
     }
 
     // ---------------------------------------------------------------------------------------------
-    // dip
+    // dip: one packet per hit, the client plays the whole animation by itself
     // ---------------------------------------------------------------------------------------------
 
-    private static void startDip(Player player, int ticks)
+    /**
+     * A single, deterministic dip: the client lowers the weapon to "swap" it and raises it again
+     * (~3 ticks down, ~3 ticks up) without needing anything else. Nothing can arrive late and
+     * break it, and it costs one packet per hit.
+     */
+    private static void startDip(Player player)
+    {
+        Strategy s = strategy();
+        if (s == null)
+            return;
+
+        ItemStack real = player.getInventory().getItemInOffHand();
+        if (real == null || real.getType().isAir())
+            return;
+
+        UUID id = player.getUniqueId();
+        boolean second = Boolean.TRUE.equals(TOGGLE.get(id));
+        TOGGLE.put(id, !second);
+
+        int copy = second ? 2 : 1;
+        Object packet = s.packet(variant(real, copy));
+        if (packet == null)
+        {
+            Debug.log("off-hand recharge: the slot packet could not be built, the animation is disabled");
+            return;
+        }
+
+        try
+        {
+            s.send(player, packet);
+            Debug.log("off-hand recharge: dipping " + real.getType() + " (copy " + copy + ")");
+        }
+        catch (Throwable t)
+        {
+            log(Level.WARNING, "the off-hand recharge could not be sent: " + t, null);
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // hold: experimental, one packet per tick for the whole recharge
+    // ---------------------------------------------------------------------------------------------
+
+    private static void startHold(Player player, int ticks)
     {
         Strategy s = strategy();
         if (s == null || Main.inst == null)
@@ -200,9 +273,20 @@ public final class OffhandRecharge
 
         Debug.log("off-hand recharge: lowering " + type + " for " + hold + " ticks (recharge " + ticks + ")");
 
+        // Start right away, so the weapon goes down with the hit and not one tick later.
+        try
+        {
+            s.send(player, packetA);
+        }
+        catch (Throwable t)
+        {
+            log(Level.WARNING, "the off-hand recharge animation could not be started: " + t, null);
+            return;
+        }
+
         BukkitTask task = new BukkitRunnable()
         {
-            int tick = 0;
+            int tick = 1;
 
             @Override
             public void run()
@@ -250,7 +334,7 @@ public final class OffhandRecharge
                     restore(p);
                 }
             }
-        }.runTaskTimer(Main.inst, 0, 1);
+        }.runTaskTimer(Main.inst, 1, 1);
 
         BukkitTask previous = RUNNING.put(id, task);
         if (previous != null)
