@@ -235,6 +235,14 @@ public class DualWielding implements Listener, CommandExecutor
         OFFHAND_DELAY_TICKS = config.getInt("offhand-delay-after-main-hand", 8);
         SWING_ANIMATION = String.valueOf(config.get("offhand-swing-animation", "auto"));
 
+        String recharge = config.getString("offhand-recharge", "dip");
+        switch (recharge == null ? "dip" : recharge.toLowerCase(Locale.ROOT))
+        {
+            case "none", "off", "false", "disabled" -> OffhandRecharge.setMode(OffhandRecharge.Mode.NONE);
+            case "cooldown", "item", "bar", "vanilla" -> OffhandRecharge.setMode(OffhandRecharge.Mode.COOLDOWN);
+            default -> OffhandRecharge.setMode(OffhandRecharge.Mode.DIP);
+        }
+
         Debug.setEnabled(config.getBoolean("debug", false));
 
         String animationMethod = config.getString("offhand-animation-method", "auto");
@@ -265,6 +273,7 @@ public class DualWielding implements Listener, CommandExecutor
         lines.add("off-hand animation: " + OffhandAnimation.describe());
         lines.add("off-hand swing duration (item component): " + SWING_ANIMATION
                 + (SWING_ANIMATION != null && SWING_ANIMATION.equalsIgnoreCase("auto") ? " (10 / attack speed ticks)" : ""));
+        lines.add("off-hand recharge: " + OffhandRecharge.describe());
         lines.add("ProtocolLib: " + (OffhandAnimation.isProtocolLibEnabled() ? "found" : "not found"));
         lines.add("Nexo: " + (Main.HAS_NEXO ? "hooked" : "not found"));
         lines.addAll(MMOHook.describe());
@@ -327,6 +336,7 @@ public class DualWielding implements Listener, CommandExecutor
     private void onPlayerQuit(PlayerQuitEvent e)
     {
         wielders.remove(e.getPlayer());
+        OffhandRecharge.cancel(e.getPlayer());
     }
 
     @EventHandler
@@ -460,6 +470,10 @@ public class DualWielding implements Listener, CommandExecutor
             // off-hand hit dealt its damage without any animation at all.
             applySwingAnimation(player, weapon);
             wielder.offhandAnimation();
+
+            // The weapon goes down and stays down while the off hand recharges, exactly like the
+            // main hand does in vanilla (see OffhandRecharge).
+            OffhandRecharge.start(player, cooldownTicks(weapon));
 
             if (critical)
             {
@@ -812,6 +826,10 @@ public class DualWielding implements Listener, CommandExecutor
             {
                 applySwingAnimation(player, itemOffHand);
                 wielder.offhandAnimation();
+
+                // Hitting the air recharges the weapon in vanilla too (Minecraft resets the attack
+                // cooldown on a missed hit), so the weapon goes down even without a target.
+                OffhandRecharge.start(player, cooldownTicks(itemOffHand));
 
                 if (player.getGameMode() == GameMode.ADVENTURE)
                     return;

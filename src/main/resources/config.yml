@@ -58,6 +58,30 @@ nexo-check: block
 #   none  - never touch the item (the animation is always the vanilla default of 6 ticks)
 offhand-swing-animation: auto
 
+# Recharge animation of the off-hand weapon, i.e. "the weapon goes down and comes back up while
+# the attack recharges", the animation whose length follows the attack speed of the weapon.
+#
+# In vanilla only the MAIN hand does it: the client keeps the off-hand item raised by design, so
+# there is no packet or API asking for an off-hand recharge. This plugin works around it:
+#
+#   dip      - (default) while the weapon recharges the client is shown a copy of the off-hand item
+#              that differs by one invisible component, so the client believes the weapon is being
+#              swapped over and over and holds it DOWN; when the recharge is over the real item is
+#              sent back and the client raises the weapon again (~3 ticks), exactly like the main
+#              hand (which stays low for most of the recharge and rises at the end).
+#              Nothing of the real item is touched: the copies only live inside the packets.
+#   cooldown - vanilla item cooldown: the off-hand weapon shows the white recharge bar of Minecraft
+#              for exactly the recharge time of the weapon (it writes the minecraft:use_cooldown
+#              component on the item, with a cooldown group of its own).
+#   none     - no recharge feedback at all.
+#
+# Note: with an item model that disables the swap animation in the resource pack
+# (hand_animation_on_swap: false) dip has nothing to animate: use cooldown in that case.
+# dip sends one small packet per tick while the weapon is recharging (2-3 KB each for an MMOItems
+# weapon, 13 of them for a 1.6 atk/s sword): if your server is huge and you prefer to save
+# bandwidth, use cooldown (one packet per hit).
+offhand-recharge: dip
+
 # Knockback applied by the off-hand attack. Keep it off: on MMOItems/MMOCore servers the
 # knockback belongs to the combat system of those plugins.
 offhand-knockback: false

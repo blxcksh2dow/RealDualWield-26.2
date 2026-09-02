@@ -47,6 +47,7 @@ public class Main extends JavaPlugin
     @Override
     public void onDisable()
     {
+        OffhandRecharge.cancelAll();
         inst = null;
     }
 }

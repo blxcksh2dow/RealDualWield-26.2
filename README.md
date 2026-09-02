@@ -132,6 +132,44 @@ Viene scritto **solo sugli item che non ce l'hanno**, quindi una scelta esplicit
 un altro plugin) non viene mai sovrascritta, e tocca solo l'animazione: nessuna texture, stat o NBT
 viene modificata. `offhand-swing-animation: 12` forza 12 tick, `none` non tocca mai l'item.
 
+### Animazione di ricarica della mano secondaria ("la spada che si abbassa")
+
+È l'animazione che si vede dopo un colpo: **l'arma si abbassa e resta giù finché l'attacco non è di
+nuovo carico**, e la sua durata è la velocità di attacco dell'arma (un'arma lenta resta giù molto
+più a lungo). Va tenuta distinta dallo swing, che è il movimento del braccio del colpo.
+
+**In vanilla la fa solo la mano principale, per scelta del client.** Nel sorgente 26.2 di
+`ItemInHandRenderer` l'altezza dell'arma in mano è calcolata così:
+
+```java
+float mainHandTargetHeight = mainHandItem != nextMainHand ? 0.0F : attackAnim * attackAnim * attackAnim;
+float offHandTargetHeight  = offHandItem  != nextOffHand  ? 0.0F : 1.0F;
+//                                                                 ^^^^^ la seconda mano è SEMPRE alzata
+```
+
+`attackAnim` è `Player#getItemSwapScale()`, cioè il tempo di ricarica, azzerato dal client quando
+attacca (o spacca un blocco, o cambia l'item nella mano principale). Per la seconda mano il client
+non ha proprio uno stato di ricarica: nessun pacchetto e nessuna API del server può chiederlo. Le
+uniche due cose che la abbassano sono il cambio dell'item (animazione di swap) e l'uso dell'oggetto,
+e in entrambi i casi torna su in ~3 tick, qualsiasi sia l'arma.
+
+Il plugin aggira il limite con `offhand-recharge`:
+
+| valore     | effetto                                                                                                                                                                             |
+|------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `dip`      | **(default)** mentre l'arma ricarica il client riceve una copia dell'item di seconda mano che differisce per un solo componente invisibile, così crede che l'arma venga sostituita di continuo e la tiene **abbassata**; a ricarica finita viene rimandato l'item vero e il client la risolleva in ~3 tick. È lo stesso profilo della mano principale vanilla (che sta giù per gran parte della ricarica e risale alla fine). |
+| `cooldown` | la classica barra di ricarica vanilla: l'arma nello slot della seconda mano mostra la barra bianca per esattamente il tempo di ricarica dell'arma (scrive sull'item il componente `minecraft:use_cooldown`, con un gruppo di cooldown suo). |
+| `none`     | nessun feedback di ricarica.                                                                                                                                                      |
+
+Con `dip` **l'item vero non viene mai modificato**: le copie vivono solo dentro i pacchetti, quindi
+stat MMOItems, texture Nexo/MMOItems, durabilità e custom model data restano intatti. Se un item
+model del resource pack disattiva l'animazione di swap (`hand_animation_on_swap: false`) `dip` non
+ha nulla da animare: in quel caso usa `cooldown`.
+
+Il tempo di abbassamento è lo stesso del cooldown dell'arma (`20 / attack-speed`, cioè il valore
+usato per la barra e per scalare il danno), e scatta anche quando colpisci **l'aria**, perché in
+vanilla anche un colpo a vuoto fa partire la ricarica.
+
 ### Colpire subito dopo la mano principale
 
 In vanilla un mob colpito è **invulnerabile per 10 tick (0,5s)** e in quella finestra vengono
