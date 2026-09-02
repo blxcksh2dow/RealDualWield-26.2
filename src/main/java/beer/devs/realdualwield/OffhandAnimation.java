@@ -104,6 +104,35 @@ public final class OffhandAnimation
         catch (Throwable t)
         {
             log(Level.WARNING, "the off-hand swing animation could not be played (" + resolved.describe() + ")", t);
+            degradeToApi(player);
+        }
+    }
+
+    /**
+     * If the packet strategy stops working after having been accepted (ProtocolLib update, another
+     * plugin interfering, ...) switch to the swing API instead of losing the animation entirely.
+     */
+    private static void degradeToApi(Player player)
+    {
+        synchronized (OffhandAnimation.class)
+        {
+            if (!(sender instanceof PacketSender))
+                return;
+
+            Sender api = ApiSender.probe();
+            if (api == null)
+                return;
+
+            log(Level.WARNING, "the packet strategy stopped working: using " + api.describe() + " from now on", null);
+            sender = api;
+
+            try
+            {
+                api.send(player);
+            }
+            catch (Throwable ignored)
+            {
+            }
         }
     }
 
@@ -201,7 +230,6 @@ public final class OffhandAnimation
 
         private final int build;
         private final Constructor<?> constructor;
-        private boolean sendFailed;
 
         private PacketSender(int build, Constructor<?> constructor)
         {
@@ -235,9 +263,12 @@ public final class OffhandAnimation
             for (Constructor<?> ctor : packetClass.getDeclaredConstructors())
             {
                 Class<?>[] params = ctor.getParameterTypes();
-                if (params.length == 2 && params[0] == int.class && params[1] == int.class
-                        && instantiate(ctor, player.getEntityId(), SWING_OFF_HAND) != null)
-                    return new PacketSender(BUILD_IDS, ctor);
+                if (params.length == 2 && params[0] == int.class && params[1] == int.class)
+                {
+                    Object instance = instantiate(ctor, player.getEntityId(), SWING_OFF_HAND);
+                    if (instance != null && carries(instance, player.getEntityId(), SWING_OFF_HAND))
+                        return new PacketSender(BUILD_IDS, ctor);
+                }
             }
 
             // (Entity, int): the classic constructor kept by Mojang as a convenience.
@@ -246,9 +277,12 @@ public final class OffhandAnimation
                 for (Constructor<?> ctor : packetClass.getDeclaredConstructors())
                 {
                     Class<?>[] params = ctor.getParameterTypes();
-                    if (params.length == 2 && params[1] == int.class && params[0].isInstance(entity)
-                            && instantiate(ctor, entity, SWING_OFF_HAND) != null)
-                        return new PacketSender(BUILD_ENTITY, ctor);
+                    if (params.length == 2 && params[1] == int.class && params[0].isInstance(entity))
+                    {
+                        Object instance = instantiate(ctor, entity, SWING_OFF_HAND);
+                        if (instance != null && carries(instance, player.getEntityId(), SWING_OFF_HAND))
+                            return new PacketSender(BUILD_ENTITY, ctor);
+                    }
                 }
             }
 
@@ -292,6 +326,9 @@ public final class OffhandAnimation
                 return;
 
             Location origin = player.getLocation();
+            int delivered = 0;
+            Throwable failure = null;
+
             for (Player near : origin.getWorld().getPlayers())
             {
                 if (near.getWorld() != origin.getWorld())
@@ -302,17 +339,18 @@ public final class OffhandAnimation
                 try
                 {
                     manager.sendServerPacket(near, packet);
+                    delivered++;
                 }
                 catch (Throwable t)
                 {
-                    if (!sendFailed)
-                    {
-                        sendFailed = true;
-                        log(Level.WARNING, "sending the off-hand animation packet failed, " +
-                                "consider setting 'offhand-animation-method: api' in config.yml", t);
-                    }
+                    if (failure == null)
+                        failure = t;
                 }
             }
+
+            // Nobody received it: let the caller fall back on the swing API.
+            if (delivered == 0 && failure != null)
+                throw new IllegalStateException("the off-hand animation packet was not delivered to anybody", failure);
         }
 
         private com.comphenix.protocol.events.PacketContainer build(Player player)
@@ -398,14 +436,44 @@ public final class OffhandAnimation
             }
         }
 
-        private static boolean writeIntFields(Object instance, int entityId, int action)
+        /**
+         * Guards against constructors whose parameters are not (entityId, action): without this the
+         * packet could animate the wrong entity or play the wrong animation.
+         */
+        private static boolean carries(Object instance, int entityId, int action)
         {
-            List<Field> intFields = new ArrayList<>();
-            for (Field field : instance.getClass().getDeclaredFields())
+            List<Field> intFields = intFields(instance.getClass());
+            if (intFields.size() < 2)
+                return true; // nothing to compare with: assume it is correct
+
+            try
+            {
+                Field first = intFields.get(0);
+                Field second = intFields.get(1);
+                first.setAccessible(true);
+                second.setAccessible(true);
+                return first.getInt(instance) == entityId && second.getInt(instance) == action;
+            }
+            catch (Throwable t)
+            {
+                return true;
+            }
+        }
+
+        private static List<Field> intFields(Class<?> type)
+        {
+            List<Field> fields = new ArrayList<>();
+            for (Field field : type.getDeclaredFields())
             {
                 if (!Modifier.isStatic(field.getModifiers()) && field.getType() == int.class)
-                    intFields.add(field);
+                    fields.add(field);
             }
+            return fields;
+        }
+
+        private static boolean writeIntFields(Object instance, int entityId, int action)
+        {
+            List<Field> intFields = intFields(instance.getClass());
 
             if (intFields.size() < 2)
                 return false;
