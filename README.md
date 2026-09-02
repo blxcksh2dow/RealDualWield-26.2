@@ -101,6 +101,15 @@ Oltre al fix dell'animazione, il codice è stato allineato alle API moderne:
 Il comportamento di gioco (danni, knockback, particelle, suoni, instamine delle piante, barra di
 cooldown) è rimasto identico alla 1.2.0.
 
+### Robustezza
+
+Tutte le chiamate ad Adventure (componenti, `showTitle`) sono protette da un try/catch con
+**fallback sulle API legacy** (`sendMessage(String)`, `sendTitle(String, String, int, int, int)`):
+se un server dovesse avere una versione di Adventure diversa da quella contro cui è stato
+compilato il plugin, il plugin parte comunque e la barra di cooldown continua a funzionare. Lo
+stesso vale per l'animazione: se il pacchetto non arriva a nessuno, si passa da solo a
+`swingOffHand()`.
+
 ---
 
 ## Compilare da sorgente

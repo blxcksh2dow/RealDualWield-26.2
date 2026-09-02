@@ -63,23 +63,67 @@ public class DualWielding implements Listener, CommandExecutor
 
     private final HashMap<Player, Wielder> wielders = new HashMap<>();
 
+    /** Adventure components for the cooldown bar, or null when they cannot be built. */
     private static final Component[] COOLDOWN_ANIM;
+    /** Legacy (§ codes) version of the same bar, used if Adventure is unavailable at runtime. */
+    private static final String[] COOLDOWN_ANIM_LEGACY;
     private static final int COOLDOWN_STEPS = 8;
     private static final int COOLDOWN_BARS = 9;
+    private static final String SECTION = "\u00A7";
 
     static
     {
         @SuppressWarnings("UnnecessaryUnicodeEscape")
         String DOT = "\u00B7"; // MIDDLE DOT
 
-        COOLDOWN_ANIM = new Component[COOLDOWN_STEPS];
+        COOLDOWN_ANIM_LEGACY = new String[COOLDOWN_STEPS];
         for (int step = 0; step < COOLDOWN_STEPS; step++)
         {
-            Component bar = Component.empty();
+            StringBuilder bar = new StringBuilder(COOLDOWN_BARS * 2);
             for (int i = 0; i < COOLDOWN_BARS; i++)
-                bar = bar.append(Component.text(DOT, i <= step ? NamedTextColor.GRAY : NamedTextColor.DARK_GRAY));
-            COOLDOWN_ANIM[step] = bar;
+                bar.append(i <= step ? SECTION + "7" : SECTION + "8").append(DOT);
+            COOLDOWN_ANIM_LEGACY[step] = bar.toString();
         }
+
+        Component[] anim = null;
+        try
+        {
+            anim = new Component[COOLDOWN_STEPS];
+            for (int step = 0; step < COOLDOWN_STEPS; step++)
+            {
+                Component bar = Component.empty();
+                for (int i = 0; i < COOLDOWN_BARS; i++)
+                    bar = bar.append(Component.text(DOT, i <= step ? NamedTextColor.GRAY : NamedTextColor.DARK_GRAY));
+                anim[step] = bar;
+            }
+        }
+        catch (Throwable t)
+        {
+            anim = null;
+            if (Main.inst != null)
+                Main.inst.getLogger().warning("[RealDualWield] Adventure components are not available (" + t + "): the cooldown bar will use the legacy title API.");
+        }
+        COOLDOWN_ANIM = anim;
+    }
+
+    /** Base attack damage per material name (vanilla values, "HAND" defaults to 1). */
+    private static final Map<String, Double> MATERIAL_DAMAGE = new HashMap<>();
+
+    static
+    {
+        registerDamage(8, "NETHERITE_SWORD");
+        registerDamage(7, "NETHERITE_AXE", "DIAMOND_SWORD", "GOLDEN_AXE", "WOODEN_AXE");
+        registerDamage(6, "NETHERITE_HOE", "NETHERITE_SHOVEL", "NETHERITE_PICKAXE", "IRON_SWORD");
+        registerDamage(5, "STONE_SWORD", "DIAMOND_PICKAXE");
+        registerDamage(4, "WOODEN_SWORD", "GOLDEN_SWORD", "IRON_PICKAXE");
+        registerDamage(3, "STONE_PICKAXE");
+        registerDamage(2, "WOODEN_PICKAXE", "GOLDEN_PICKAXE");
+        registerDamage(9, "STONE_AXE", "IRON_AXE", "DIAMOND_AXE", "TRIDENT");
+        registerDamage(5.5d, "DIAMOND_SHOVEL");
+        registerDamage(4.5d, "IRON_SHOVEL");
+        registerDamage(3.5, "STONE_SHOVEL");
+        registerDamage(2.5d, "WOODEN_SHOVEL", "GOLDEN_SHOVEL");
+        registerDamage(1, "WOODEN_HOE", "GOLDEN_HOE", "STONE_HOE", "IRON_HOE", "DIAMOND_HOE");
     }
 
     public DualWielding()
@@ -133,11 +177,11 @@ public class DualWielding implements Listener, CommandExecutor
             {
                 Main.inst.reloadConfig();
                 initConfig();
-                sender.sendMessage(Component.text("[RealDualWield] Reloaded config.", NamedTextColor.GREEN));
+                sendMessage(sender, "[RealDualWield] Reloaded config.", NamedTextColor.GREEN, SECTION + "a");
             }
             else
             {
-                sender.sendMessage(Component.text("[RealDualWield] You do not have permission to do that.", NamedTextColor.RED));
+                sendMessage(sender, "[RealDualWield] You do not have permission to do that.", NamedTextColor.RED, SECTION + "c");
             }
         }
         return true;
@@ -398,14 +442,14 @@ public class DualWielding implements Listener, CommandExecutor
                 {
                     if (config.getBoolean("show-cooldown-bar"))
                     {
-                        wielder.getPlayer().showTitle(Title.title(Component.empty(), COOLDOWN_ANIM[animIndex], 0, 500, 0));
+                        showCooldownBar(wielder.getPlayer(), animIndex);
                         animIndex++;
                     }
                 }
                 else if (count > 12)
                 {
                     if (config.getBoolean("show-cooldown-bar"))
-                        wielder.getPlayer().clearTitle();
+                        clearCooldownBar(wielder.getPlayer());
 
                     wielder.setUsingLeftWeapon(false);
                     wielder.setDelay(null);
@@ -416,6 +460,47 @@ public class DualWielding implements Listener, CommandExecutor
             }
             // The titles are player API calls: they must run on the main thread.
         }.runTaskTimer(Main.inst, 0, 1);
+    }
+
+    /**
+     * Sends a message using Adventure, falling back on the legacy colour codes if the Adventure
+     * API is not the one this plugin was compiled against.
+     */
+    private static void sendMessage(CommandSender sender, String text, NamedTextColor color, String legacyColor)
+    {
+        try
+        {
+            sender.sendMessage(Component.text(text, color));
+        }
+        catch (Throwable t)
+        {
+            sender.sendMessage(legacyColor + text);
+        }
+    }
+
+    /** Shows the cooldown bar (title) for the given step, Adventure first, legacy API as backup. */
+    private static void showCooldownBar(Player player, int index)
+    {
+        try
+        {
+            player.showTitle(Title.title(Component.empty(), COOLDOWN_ANIM[index], 0, 500, 0));
+        }
+        catch (Throwable t)
+        {
+            player.sendTitle(" ", COOLDOWN_ANIM_LEGACY[index], 0, 500, 0);
+        }
+    }
+
+    private static void clearCooldownBar(Player player)
+    {
+        try
+        {
+            player.clearTitle();
+        }
+        catch (Throwable t)
+        {
+            player.sendTitle(" ", " ", 0, 500, 0);
+        }
     }
 
     boolean isEnabled(ItemStack offHand)
@@ -509,24 +594,15 @@ public class DualWielding implements Listener, CommandExecutor
 
     static double getMaterialAttackDamage(Material material)
     {
-        return switch (material)
-        {
-            case NETHERITE_SWORD -> 8;
-            case NETHERITE_AXE, DIAMOND_SWORD, GOLDEN_AXE, WOODEN_AXE -> 7;
-            case NETHERITE_HOE, NETHERITE_SHOVEL, NETHERITE_PICKAXE, IRON_SWORD -> 6;
-            case WOODEN_SWORD, GOLDEN_SWORD, IRON_PICKAXE -> 4;
-            case STONE_SWORD, DIAMOND_PICKAXE -> 5;
-            case WOODEN_SHOVEL, GOLDEN_SHOVEL -> 2.5d;
-            case STONE_SHOVEL -> 3.5;
-            case IRON_SHOVEL -> 4.5d;
-            case DIAMOND_SHOVEL -> 5.5d;
-            case WOODEN_PICKAXE, GOLDEN_PICKAXE -> 2;
-            case STONE_PICKAXE -> 3;
-            case STONE_AXE, IRON_AXE, DIAMOND_AXE, TRIDENT -> 9;
-            case WOODEN_HOE, GOLDEN_HOE, STONE_HOE, IRON_HOE, DIAMOND_HOE -> 1;
-            // HAND
-            default -> 1;
-        };
+        // A map keyed by the material name instead of a switch on the enum: it does not depend on
+        // every single Material constant existing at runtime.
+        return MATERIAL_DAMAGE.getOrDefault(material.name(), 1D);
+    }
+
+    private static void registerDamage(double damage, String... names)
+    {
+        for (String name : names)
+            MATERIAL_DAMAGE.put(name, damage);
     }
 
     static double getDamage(ItemStack item, Player player, LivingEntity damaged, boolean critical, @Nullable Integer delay)

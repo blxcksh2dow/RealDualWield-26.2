@@ -23,9 +23,16 @@ public class Main extends JavaPlugin
 
         new DualWielding();
 
-        getLogger().info("RealDualWield v" + getPluginMeta().getVersion() + " enabled on Minecraft " +
-                getServer().getMinecraftVersion() + " (ProtocolLib " +
-                (OffhandAnimation.isProtocolLibEnabled() ? "found" : "not found") + ").");
+        try
+        {
+            getLogger().info("RealDualWield v" + getPluginMeta().getVersion() + " enabled on Minecraft " +
+                    getServer().getMinecraftVersion() + " (ProtocolLib " +
+                    (OffhandAnimation.isProtocolLibEnabled() ? "found" : "not found") + ").");
+        }
+        catch (Throwable t)
+        {
+            getLogger().info("RealDualWield enabled.");
+        }
     }
 
     @Override
