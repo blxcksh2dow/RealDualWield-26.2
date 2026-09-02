@@ -1,0 +1,63 @@
+plugins {
+    id 'java'
+}
+
+group = 'beer.devs.realdualwield'
+version = pluginVersion
+
+// Minecraft 26.2 (and therefore its API) requires Java 25.
+def targetJava = JavaVersion.toVersion(targetJavaVersion)
+if (JavaVersion.current() < targetJava) {
+    throw new GradleException("RealDualWield needs JDK ${targetJavaVersion}+ to be built (found ${JavaVersion.current()}).")
+}
+
+repositories {
+    mavenCentral()
+    // Paper API (io.papermc.paper:paper-api)
+    maven {
+        name = 'papermc'
+        url = 'https://repo.papermc.io/repository/maven-public/'
+    }
+    // ProtocolLib
+    maven {
+        name = 'dmulloy2'
+        url = 'https://repo.dmulloy2.net/repository/public/'
+    }
+    // Fallback: builds ProtocolLib straight from GitHub when dmulloy2 is unreachable.
+    // In that case replace the dependency below with:
+    //   compileOnly 'com.github.dmulloy2.ProtocolLib:ProtocolLib:master-SNAPSHOT'
+    maven {
+        name = 'jitpack'
+        url = 'https://jitpack.io'
+    }
+}
+
+dependencies {
+    compileOnly "io.papermc.paper:paper-api:${paperApiVersion}"
+    compileOnly "com.comphenix.protocol:ProtocolLib:${protocolLibVersion}"
+}
+
+java {
+    sourceCompatibility = targetJava
+    targetCompatibility = targetJava
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release.set(Integer.parseInt(targetJavaVersion))
+    options.compilerArgs.add('-Xlint:deprecation')
+}
+
+processResources {
+    def props = [version: version]
+    inputs.properties props
+    filteringCharset 'UTF-8'
+    filesMatching('plugin.yml') {
+        expand props
+    }
+}
+
+tasks.named('jar') {
+    archiveBaseName.set('RealDualWield')
+    archiveVersion.set(project.version.toString())
+}

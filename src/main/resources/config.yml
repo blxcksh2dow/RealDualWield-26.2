@@ -1,0 +1,84 @@
+# RealDualWield configuration
+#
+# Reload it with /rdwreload
+
+# Shows the cooldown bar (title) while the off-hand weapon is recharging.
+show-cooldown-bar: true
+
+# Allows hitting a mob that is standing in the air.
+can-attack-mob-in-air: false
+
+# Blocks the off-hand attack when the right click is held down for too long.
+deny-longpress-rightclick: true
+
+# Lets the off-hand weapon break plants instantly.
+break-plants: true
+
+# Plays the off-hand animation even when the off-hand is empty.
+break_plants_bare_hand: true
+
+# How the off-hand swing animation is produced.
+#
+#   auto   - (default) send the animation packet through ProtocolLib when it can be created,
+#            otherwise use LivingEntity#swingOffHand() (Paper / Purpur).
+#   packet - only send the animation packet (ProtocolLib). On Minecraft 26.x the packet is an
+#            immutable record, so it is created by reflection and then handed to ProtocolLib.
+#            If anything fails the plugin still falls back to the API.
+#   api    - only use LivingEntity#swingOffHand(), no packet is ever created. Recommended if
+#            you do not run ProtocolLib or if another plugin conflicts with the animation packet.
+offhand-animation-method: auto
+
+# Materials that can be used as an off-hand weapon.
+dual_wield_enabled:
+  materials:
+    - BONE
+    - STICK
+    - BRICK
+    - WOODEN_SWORD
+    - WOODEN_SPADE
+    - WOODEN_SHOVEL
+    - WOODEN_AXE
+    - WOODEN_PICKAXE
+    - WOODEN_HOE
+    - WOOD_SWORD
+    - WOOD_SPADE
+    - WOOD_SHOVEL
+    - WOOD_AXE
+    - WOOD_PICKAXE
+    - WOOD_HOE
+    - STONE_SWORD
+    - STONE_SPADE
+    - STONE_SHOVEL
+    - STONE_AXE
+    - STONE_PICKAXE
+    - STONE_HOE
+    - GOLDEN_SWORD
+    - GOLDEN_SPADE
+    - GOLDEN_SHOVEL
+    - GOLDEN_AXE
+    - GOLDEN_PICKAXE
+    - GOLDEN_HOE
+    - GOLD_SWORD
+    - GOLD_SPADE
+    - GOLD_SHOVEL
+    - GOLD_AXE
+    - GOLD_PICKAXE
+    - GOLD_HOE
+    - IRON_SWORD
+    - IRON_SPADE
+    - IRON_SHOVEL
+    - IRON_AXE
+    - IRON_PICKAXE
+    - IRON_HOE
+    - DIAMOND_SWORD
+    - DIAMOND_SPADE
+    - DIAMOND_SHOVEL
+    - DIAMOND_AXE
+    - DIAMOND_PICKAXE
+    - DIAMOND_HOE
+    - NETHERITE_SWORD
+    - NETHERITE_SPADE
+    - NETHERITE_SHOVEL
+    - NETHERITE_AXE
+    - NETHERITE_PICKAXE
+    - NETHERITE_HOE

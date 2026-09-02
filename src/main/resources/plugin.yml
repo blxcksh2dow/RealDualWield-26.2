@@ -1,0 +1,23 @@
+name: RealDualWield
+version: ${version}
+main: beer.devs.realdualwield.Main
+api-version: 26.2
+authors: [LoneDev, blxcksh2dow]
+description: Real dual wielding, 26.2 ready (off-hand swing animation kept alive without ProtocolLib packet creation).
+website: https://github.com/blxcksh2dow/RealDualWield-26.2
+# ProtocolLib is optional since 1.3.0: when it is missing (or when it cannot allocate the
+# animation packet, like on Minecraft 26.x) the plugin falls back to the Paper swing API.
+softdepend:
+  - ProtocolLib
+commands:
+  rdwreload:
+    description: Reloads the RealDualWield configuration.
+    usage: /<command>
+    permission: rdw.reload
+permissions:
+  rdw.use:
+    description: Allows the player to attack with the off-hand weapon.
+    default: true
+  rdw.reload:
+    description: Allows the player to reload the configuration.
+    default: op

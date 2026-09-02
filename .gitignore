@@ -1,0 +1,24 @@
+# Gradle
+.gradle/
+build/
+out/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+bin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Built artifacts (keep the Gradle wrapper jar and the prebuilt plugin releases!)
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+!releases/*.jar
