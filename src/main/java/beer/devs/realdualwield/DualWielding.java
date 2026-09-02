@@ -74,6 +74,8 @@ public class DualWielding implements Listener, CommandExecutor
     private String MMO_NO_MANA = "&cNot enough mana!";
     private String MMO_NO_STAMINA = "&cNot enough stamina!";
     private boolean MMO_ATTACK_SPEED = true;
+    private boolean MMO_ENFORCE_COOLDOWN = true;
+    private static boolean MMO_EXTRA_DAMAGE = true;
     private int MMO_MIN_COOLDOWN = 4;
     private int MMO_MAX_COOLDOWN = 40;
     private boolean MMO_ALL_WEAPONS = true;
@@ -157,9 +159,21 @@ public class DualWielding implements Listener, CommandExecutor
 
         Bukkit.getServer().getPluginManager().registerEvents(this, Main.inst);
 
-        PluginCommand command = Main.inst.getCommand("rdwreload");
-        if (command != null)
-            command.setExecutor(this);
+        registerCommand("rdwreload");
+        registerCommand("rdwdebug");
+    }
+
+    private void registerCommand(String name)
+    {
+        PluginCommand command = Main.inst.getCommand(name);
+        if (command == null)
+        {
+            Main.inst.getLogger().warning("[RealDualWield] the command /" + name
+                    + " is not declared in plugin.yml: restart the server (a plugin manager or /reload does not register new commands).");
+            return;
+        }
+
+        command.setExecutor(this);
     }
 
     void loadConfiguration()
@@ -186,6 +200,8 @@ public class DualWielding implements Listener, CommandExecutor
         MMO_NO_MANA = config.getString("mmoitems.not-enough-mana-message", "&cNot enough mana!");
         MMO_NO_STAMINA = config.getString("mmoitems.not-enough-stamina-message", "&cNot enough stamina!");
         MMO_ATTACK_SPEED = config.getBoolean("mmoitems.use-attack-speed", true);
+        MMO_ENFORCE_COOLDOWN = config.getBoolean("mmoitems.enforce-cooldown", true);
+        MMO_EXTRA_DAMAGE = config.getBoolean("mmoitems.apply-crit-and-enchants", true);
         MMO_MIN_COOLDOWN = config.getInt("mmoitems.min-cooldown", 4);
         MMO_MAX_COOLDOWN = config.getInt("mmoitems.max-cooldown", 40);
         MMO_ALL_WEAPONS = config.getBoolean("mmoitems.all-mmoitems-weapons", true);
@@ -256,16 +272,24 @@ public class DualWielding implements Listener, CommandExecutor
 
         if (cmd.getName().equalsIgnoreCase("rdwreload"))
         {
-            if (sender.hasPermission("rdw.reload"))
-            {
-                Main.inst.reloadConfig();
-                initConfig();
-                sendMessage(sender, "[RealDualWield] Reloaded config.", NamedTextColor.GREEN, SECTION + "a");
-            }
-            else
+            if (!sender.hasPermission("rdw.reload"))
             {
                 sendMessage(sender, "[RealDualWield] You do not have permission to do that.", NamedTextColor.RED, SECTION + "c");
+                return true;
             }
+
+            // /rdwreload debug: same report as /rdwdebug, for the servers that cannot register
+            // the new command without a full restart (plugin managers, /reload...).
+            if (args.length > 0 && args[0].equalsIgnoreCase("debug"))
+            {
+                for (String line : integrationReport())
+                    sendMessage(sender, "[RealDualWield] " + line, NamedTextColor.GRAY, SECTION + "7");
+                return true;
+            }
+
+            Main.inst.reloadConfig();
+            initConfig();
+            sendMessage(sender, "[RealDualWield] Reloaded config.", NamedTextColor.GREEN, SECTION + "a");
         }
         return true;
     }
@@ -332,6 +356,14 @@ public class DualWielding implements Listener, CommandExecutor
             }
         }
 
+        if (MMO_ENABLED && Debug.isEnabled() && MMOHook.isMMOItem(weapon))
+        {
+            Debug.log("mmoitems stats of " + weapon.getType() + ": attack-damage=" + MMOHook.stat(weapon, "ATTACK_DAMAGE")
+                    + " attack-speed=" + MMOHook.stat(weapon, "ATTACK_SPEED") + " (cooldown " + cooldownTicks(weapon) + " ticks)"
+                    + " mana-cost=" + MMOHook.manaCost(weapon) + " stamina-cost=" + MMOHook.staminaCost(weapon)
+                    + " two-handed=" + MMOHook.isTwoHanded(weapon) + " weapon=" + MMOHook.isWeapon(weapon));
+        }
+
         // Mana / stamina cost of the off-hand weapon, exactly like MMOItems does.
         if (MMO_ENABLED && MMO_COSTS && MMOHook.isMMOItem(weapon))
         {
@@ -370,6 +402,16 @@ public class DualWielding implements Listener, CommandExecutor
 
         @Nullable Integer delay = wielder.getDelay();
         int cooldownTotal = wielder.getCooldownTotal();
+
+        // MMOItems weapons respect their attack speed: while the cooldown runs the off-hand
+        // attack is skipped instead of only being scaled down.
+        if (delay != null && MMO_ENABLED && MMO_ENFORCE_COOLDOWN && MMO_ATTACK_SPEED
+                && MMOHook.isMMOItem(weapon) && MMOHook.attackSpeed(weapon) > 0)
+        {
+            Debug.log("attack skipped: the off-hand weapon is recharging (" + delay + "/" + cooldownTotal + " ticks left)");
+            return;
+        }
+
         boolean critical = !player.isOnGround() && player.getFallDistance() > 0.0F && !player.hasPotionEffect(PotionEffectType.BLINDNESS) && player.getVehicle() == null;
 
         if (Events.call(new PlayerOffhandAnimationEvent(e)))
@@ -834,9 +876,26 @@ public class DualWielding implements Listener, CommandExecutor
     public static double getDamage(ItemStack item, Player player, LivingEntity target, boolean critical)
     {
         double damage = getMaterialAttackDamage(item.getType());
+        boolean mmoDamage = false;
+
+        /*
+         * Since MMOItems 6.7 the attribute stats (attack damage, attack speed) are handled by
+         * MythicLib and are NOT written in the vanilla item attributes, so reading the ItemMeta
+         * would only give the damage of the vanilla material the item is based on. The value is
+         * read from the item NBT with the very same call MMOItems uses for its own stats.
+         */
+        if (MMOHook.isMMOItem(item))
+        {
+            double stat = MMOHook.stat(item, "ATTACK_DAMAGE");
+            if (stat > 0)
+            {
+                damage = stat;
+                mmoDamage = true;
+            }
+        }
 
         ItemMeta meta = item.getItemMeta();
-        if (meta != null && meta.getAttributeModifiers() != null)
+        if (!mmoDamage && meta != null && meta.getAttributeModifiers() != null)
         {
             for (Map.Entry<Attribute, AttributeModifier> entry : meta.getAttributeModifiers().entries())
             {
@@ -868,7 +927,11 @@ public class DualWielding implements Listener, CommandExecutor
             }
         }
 
-        if (item.containsEnchantment(Enchantment.SHARPNESS))
+        // For MMOItems weapons the criticals, the enchantment scaling and the elemental damage
+        // belong to MMOItems/MythicLib: apply-crit-and-enchants: false leaves them all to it.
+        boolean extras = !mmoDamage || MMO_EXTRA_DAMAGE;
+
+        if (extras && item.containsEnchantment(Enchantment.SHARPNESS))
         {
             float damageAllValue = 1;
             if (item.getEnchantmentLevel(Enchantment.SHARPNESS) > 1)
@@ -876,7 +939,7 @@ public class DualWielding implements Listener, CommandExecutor
             damage += damageAllValue;
         }
 
-        if (critical)
+        if (extras && critical)
             damage *= 1.5;
 
         damage = applyArmor(damage, target);

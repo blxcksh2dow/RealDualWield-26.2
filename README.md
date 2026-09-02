@@ -137,7 +137,12 @@ pipeline parte regolarmente **ma vede l'arma della mano principale**: se anche q
 `MANA_COST`, MythicLib/MMOItems potrebbe scalarlo una seconda volta. Se noti consumi doppi
 metti `mmoitems.apply-weapon-costs: false` e lascia fare tutto a MMOItems.
 
-### `/rdwdebug`
+### `/rdwdebug` (o `/rdwreload debug`)
+
+**Nota:** `/rdwdebug` è un comando nuovo: se il server non è stato **riavviato** dopo l'aggiornamento
+(non basta `/reload` e non basta un plugin manager) il comando non esiste ancora. In quel caso usa
+**`/rdwreload debug`**, che dà lo stesso identico report ed è registrato dalla prima versione del
+plugin.
 
 Non avendo a disposizione i jar di MMOItems/MMOCore (sono plugin premium), l'integrazione è
 **solo via reflection e con più nomi candidati per ogni metodo** (`NBTItem.get` *oppure* il wrapper

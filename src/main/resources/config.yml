@@ -82,6 +82,16 @@ mmoitems:
   min-cooldown: 4
   max-cooldown: 40
 
+  # While that cooldown runs the off-hand attack is skipped altogether (instead of only being
+  # scaled down), so the weapon really attacks at the speed MMOItems gives it.
+  enforce-cooldown: true
+
+  # The attack damage of an MMOItems weapon is read from the item (the vanilla item attributes are
+  # empty since MMOItems 6.7). With this option the plugin also adds, on top of it, its own critical
+  # hits and Sharpness scaling: set it to false to leave all of that to MMOItems/MythicLib (useful
+  # if you see the numbers inflated, e.g. critical hits counted twice).
+  apply-crit-and-enchants: true
+
   # Every MMOItems weapon can be used in the off hand even when its vanilla material is not
   # listed in dual_wield_enabled.materials below. Needed for textured weapons based on paper,
   # sticks, bones... (custom model data / itemsadder / Nexo textures keep working: the plugin
